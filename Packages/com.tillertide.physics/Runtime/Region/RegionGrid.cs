@@ -125,19 +125,42 @@ namespace TillerTide.Physics.Region
 
         public bool IsLand(Vec2 p) => SignedDistanceAt(p) > 0;
 
-        /// <summary>Estimated depth in metres; zero or negative on land. Real soundings replace this later.</summary>
+        /// <summary>Measured depths, when they could be loaded. Without them depth is estimated from the shore distance.</summary>
+        public Bathymetry Bathymetry { get; private set; }
+        private GeoProjection _bathyProjection;
+
+        /// <summary>How far out from the beach (m) the estimated shelf blends into the measured depths.</summary>
+        public double BlendDistance { get; set; } = 300;
+
+        public void SetBathymetry(Bathymetry bathymetry, GeoProjection projection)
+        {
+            Bathymetry = bathymetry;
+            _bathyProjection = projection;
+        }
+
+        /// <summary>Depth in metres; zero or negative on land. Uses real soundings when loaded.</summary>
         public double DepthAt(Vec2 p)
         {
             double sd = SignedDistanceAt(p);
             if (sd >= 0) return -sd;
-            return Math.Min(MaxDepth, -sd * ShoreSlope - 0.5);
+            double shelf = Math.Min(MaxDepth, -sd * ShoreSlope - 0.5);
+            if (Bathymetry == null) return shelf;
+            var (lat, lon) = _bathyProjection.ToGeo(p);
+            double? measured = Bathymetry.DepthAt(lat, lon);
+            if (measured == null) return shelf;
+            // The coastline is sharper than the ~200 m soundings, so near the beach the shelf from the coastline
+            // limits the depth (a real shoal still wins), and further out the soundings take over.
+            double real = Math.Max(0.3, measured.Value);
+            double w = Angles.Clamp(-sd / BlendDistance, 0, 1);
+            w = w * w * (3 - 2 * w);
+            return Math.Min(shelf, real) * (1 - w) + real * w;
         }
 
         /// <summary>Terrain height above sea level (m). Negative values are the sea bed.</summary>
         public double TerrainHeightAt(Vec2 p)
         {
             double sd = SignedDistanceAt(p);
-            if (sd < 0) return -Math.Min(MaxDepth, Math.Max(0.3, -sd * ShoreSlope));
+            if (sd < 0) return -Math.Max(0.3, DepthAt(p));
             double rolling = 0.5 + 0.5 * Math.Sin(p.X / 310) * Math.Sin(p.Y / 270);
             return 1.2 + (MaxLandHeight * (0.6 + 0.4 * rolling)) * (1 - Math.Exp(-sd / 220));
         }

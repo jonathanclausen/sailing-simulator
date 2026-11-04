@@ -99,3 +99,28 @@ public class RegionTests
         Assert.Contains("55.985,12.54,56.095,12.76", q);
     }
 }
+
+public class LandShadowTests
+{
+    [Fact]
+    public void Wind_off_the_land_is_weaker_near_the_beach()
+    {
+        // Land to the west of x = 0, wind from the west (270°).
+        var c = new Coastline();
+        c.Lines.Add(new[] { new Vec2(0, -5000), new Vec2(0, 5000) });
+        var grid = RegionGrid.Build(c, new Vec2(-3000, -3000), new Vec2(3000, 3000), cellSize: 50, searchRadius: 2000);
+        var wind = new LandShadowWind(new SteadyWind(270 * Angles.Deg, 8), grid);
+        double near = wind.WindAt(new Vec2(60, 0), 3, 0).Length;
+        double mid = wind.WindAt(new Vec2(500, 0), 3, 0).Length;
+        double far = wind.WindAt(new Vec2(2800, 0), 3, 0).Length;
+        double open = new SteadyWind(270 * Angles.Deg, 8).WindAt(new Vec2(2800, 0), 3, 0).Length;
+        Assert.True(near < mid && mid < far, $"{near:F2} {mid:F2} {far:F2}");
+        Assert.InRange(near / open, 0.45, 0.7);
+        Assert.InRange(far / open, 0.97, 1.0);
+        Assert.InRange(wind.FetchToLand(new Vec2(500, 0), 270 * Angles.Deg).Value, 450, 560);
+
+        // An onshore breeze (from the east) has nothing upwind: no shadow.
+        var onshore = new LandShadowWind(new SteadyWind(90 * Angles.Deg, 8), grid);
+        Assert.Equal(new SteadyWind(90 * Angles.Deg, 8).WindAt(new Vec2(60, 0), 3, 0).Length, onshore.WindAt(new Vec2(60, 0), 3, 0).Length, 6);
+    }
+}

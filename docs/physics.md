@@ -52,3 +52,14 @@ comes once we pick the first boat.
 - No pitch or heave yet; waves don't affect speed.
 - One sail (no jib or spinnaker) and no vang or cunningham, so depowering in strong wind is by easing only.
 - The autopilot's sheet trimmer is simple and limits upwind speed in heavy air.
+
+## The real place
+
+- **Coastline** from OpenStreetMap becomes a signed-distance grid (25 m cells): positive on land, negative at sea.
+- **Depth** comes from EMODnet's digital bathymetry (about 115 m cells; the app asks for ~230 m). Within 300 m of
+  the beach the coastline's shelf (8 cm of depth per metre out) limits it, so beaches stay beaches even where the
+  soundings are coarse, and real shoals still show. Without soundings the shelf is used everywhere, capped at 30 m.
+- **Wind shadow**: wind blowing off the land loses up to half its speed at the beach and recovers over ~350 m of
+  open water (less aloft). The distance to land upwind is found by sphere-tracing the distance field.
+- **Ferries** shuttle between Helsingør and Helsingborg on a 50-minute cycle (5 min at each berth, 20 min crossing,
+  peak ~14 kn), three on the route. Being inside a hull knocks you flat.

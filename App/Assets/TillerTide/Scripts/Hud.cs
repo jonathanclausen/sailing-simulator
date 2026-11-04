@@ -19,6 +19,10 @@ namespace TillerTide.App
         public Func<string> CurrentLabel = () => "";
         public Action OnReset, OnCycleCurrent, OnCameraBehind, OnCycleCourse;
         public CourseRunner Runner;
+        public ChartView Chart;
+        public string BestTime = "";
+        private bool _fullChart;
+        private Rect _mini;
 
         private string _flash;
         private float _flashUntil;
@@ -50,8 +54,10 @@ namespace TillerTide.App
             _steerPad = new Rect(12, _h - _bottom - 92, _w - 130, 84);
             _sheetBar = new Rect(_w - 96, _h - _bottom - 330, 84, 322);
             _buttons = new Rect(12, _h - _bottom - 140, _w - 130, 40);
+            _mini = new Rect(_w - 118, _topBar.yMax + 8, 110, 110);
             _hudRects.Clear();
             _hudRects.Add(_topBar); _hudRects.Add(_steerPad); _hudRects.Add(_sheetBar); _hudRects.Add(_buttons);
+            if (Chart != null) _hudRects.Add(_fullChart ? new Rect(0, 0, _w, _h) : _mini);
         }
 
         private Vector2 ToGui(Vector2 screen) => new Vector2(screen.x / _scale, (Screen.height - screen.y) / _scale);
@@ -68,6 +74,7 @@ namespace TillerTide.App
         {
             Layout();
             bool steering = false;
+            if (_fullChart) { Steer = Mathf.MoveTowards(Steer, 0, 3f * Time.deltaTime); return; }
 
             for (int i = 0; i < Input.touchCount; i++)
             {
@@ -144,11 +151,16 @@ namespace TillerTide.App
 
             // Instruments.
             Box(_topBar, panel);
-            float cw = _topBar.width / 4;
+            float cw = _topBar.width / 5;
             Instrument(0, cw, $"{Units.ToKnots(tel.SpeedOverGround):F1}", "SPEED kn");
             Instrument(1, cw, $"{s.Heading * Mathf.Rad2Deg:000}°", "HEADING");
             Instrument(2, cw, $"{Units.ToKnots(tel.TrueWindSpeed):F0}", $"WIND kn {LiveWind.Compass((float)(tel.TrueWindDirection * Mathf.Rad2Deg))}");
             Instrument(3, cw, $"{Mathf.Abs((float)(s.Heel * Mathf.Rad2Deg)):F0}°", "HEEL");
+            double depth = Sim.Depth != null ? Sim.Depth.DepthAt(s.Position) : 99;
+            var oldBig = _big.normal.textColor;
+            if (depth < 2) _big.normal.textColor = new Color(1f, 0.45f, 0.35f);
+            Instrument(4, cw, depth >= 50 ? "50+" : depth.ToString(depth < 10 ? "F1" : "F0"), "DEPTH m");
+            _big.normal.textColor = oldBig;
             GUI.Label(new Rect(_topBar.x + 8, _topBar.y + 62, _topBar.width - 16, 14), WindStatus(), _label);
             GUI.Label(new Rect(_topBar.x + 8, _topBar.y + 76, _topBar.width - 16, 14), $"{MapStatus()}  ·  {CurrentLabel()}", _label);
 
@@ -171,13 +183,29 @@ namespace TillerTide.App
                 default: hint = "Good trim"; hc = new Color(0.5f, 1f, 0.6f); break;
             }
             var old = _hint.normal.textColor; _hint.normal.textColor = hc;
-            GUI.Label(new Rect(0, _topBar.yMax + 80, _w, 24), hint, _hint);
+            GUI.Label(new Rect(0, _topBar.yMax + 124, _w, 24), hint, _hint);
             _hint.normal.textColor = old;
 
             if (_flash != null && Time.time < _flashUntil)
             {
                 Box(new Rect(_w / 2 - 140, _h * 0.42f, 280, 44), new Color(0.05f, 0.12f, 0.2f, 0.75f));
                 GUI.Label(new Rect(_w / 2 - 140, _h * 0.42f, 280, 44), _flash, _hint);
+            }
+
+            // Chart: a small map that opens into the full chart when tapped.
+            if (Chart != null)
+            {
+                if (_fullChart)
+                {
+                    Box(new Rect(0, 0, _w, _h), new Color(0.05f, 0.12f, 0.2f, 0.85f));
+                    Chart.DrawFull(new Rect(8, _top + 30, _w - 16, _h - _top - _bottom - 40), s, Runner);
+                    GUI.Label(new Rect(0, _top + 4, _w, 22), "Chart: tap to close", _hint);
+                    if (GUI.Button(new Rect(0, 0, _w, _h), GUIContent.none, GUIStyle.none)) _fullChart = false;
+                    return;
+                }
+                Box(new Rect(_mini.x - 2, _mini.y - 2, _mini.width + 4, _mini.height + 4), panel);
+                Chart.DrawMini(_mini, s, Runner);
+                if (GUI.Button(_mini, GUIContent.none, GUIStyle.none)) _fullChart = true;
             }
 
             // Buttons.
@@ -223,12 +251,13 @@ namespace TillerTide.App
             {
                 GUI.Label(new Rect(r.x + 8, r.y + 4, r.width - 16, 20), "Finished!", _label);
                 GUI.Label(new Rect(r.x + 8, r.y + 24, r.width - 16, 30), time, _hint);
+                if (!string.IsNullOrEmpty(BestTime)) GUI.Label(new Rect(r.x + 8, r.y + 50, r.width - 16, 16), "best " + BestTime, _label);
                 return;
             }
             var next = Runner.Next;
             GUI.Label(new Rect(r.x + 8, r.y + 4, r.width - 16, 16), $"Mark {Runner.NextIndex + 1}/{Runner.Course.Marks.Count}: {next.Name}", _label);
             GUI.Label(new Rect(r.x + 8, r.y + 22, r.width - 16, 22), $"{Runner.DistanceToNext(s.Position):F0} m  ·  {Runner.BearingToNext(s.Position) * Mathf.Rad2Deg:000}°", _hint);
-            GUI.Label(new Rect(r.x + 8, r.y + 46, r.width - 16, 16), "Time " + time, _label);
+            GUI.Label(new Rect(r.x + 8, r.y + 46, r.width - 16, 16), "Time " + time + (string.IsNullOrEmpty(BestTime) ? "" : "   best " + BestTime), _label);
         }
 
         /// <summary>Little boat seen from above with the apparent (solid) and true (faint) wind arrows, and the next mark (orange).</summary>

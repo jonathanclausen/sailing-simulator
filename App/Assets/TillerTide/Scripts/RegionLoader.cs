@@ -19,6 +19,8 @@ namespace TillerTide.App
         public RegionGrid Grid;
         public GeoProjection Projection;
         public List<Seamark> Seamarks = new List<Seamark>();
+        public bool HasRealDepths;
+        public bool HasCoast;
         public string Status = "Loading map…";
         public bool FromCache;
 
@@ -32,6 +34,7 @@ namespace TillerTide.App
             var max = Projection.ToLocal(b.North, b.East);
             string coastPath = CachePath("coast", region);
             string marksPath = CachePath("seamarks", region);
+            string depthPath = CachePath("depth", region, ".tif");
 
             string coastJson = null, marksJson = null;
             FromCache = File.Exists(coastPath);
@@ -39,6 +42,9 @@ namespace TillerTide.App
             yield return Fetch(region.OverpassQuery, coastPath, j => coastJson = j);
             Status = "Downloading buoys…";
             yield return Fetch(Physics.Region.Seamarks.OverpassQuery(b), marksPath, j => marksJson = j);
+            byte[] depthTiff = null;
+            Status = "Downloading water depths…";
+            yield return FetchBytes(Bathymetry.EmodnetUrl(b), depthPath, d => depthTiff = d);
 
             if (coastJson == null)
             {
@@ -55,7 +61,13 @@ namespace TillerTide.App
                 var coast = Coastline.FromOverpassJson(coastJson, proj);
                 var grid = coast.SegmentCount == 0 ? RegionGrid.OpenSea(min, max) : RegionGrid.Build(coast, min, max);
                 var marks = marksJson != null ? Physics.Region.Seamarks.FromOverpassJson(marksJson, proj) : new List<Seamark>();
-                return (grid, marks);
+                bool depths = false;
+                if (depthTiff != null)
+                {
+                    try { grid.SetBathymetry(Bathymetry.FromGeoTiff(depthTiff, b), proj); depths = true; }
+                    catch (Exception e) { Debug.LogWarning("Depth data unreadable: " + e.Message); TryDelete(depthPath); }
+                }
+                return (grid, marks, depths);
             });
             while (!task.IsCompleted) yield return null;
             if (task.IsFaulted)
@@ -70,7 +82,9 @@ namespace TillerTide.App
             {
                 Grid = task.Result.grid;
                 Seamarks = task.Result.marks;
-                Status = $"{region.Name}, {Seamarks.Count} buoys" + (FromCache ? " (saved map)" : "");
+                HasRealDepths = task.Result.depths;
+                HasCoast = true;
+                Status = $"{region.Name}, {Seamarks.Count} buoys" + (HasRealDepths ? ", real depths" : "") + (FromCache ? " (saved)" : "");
             }
             done?.Invoke(this);
         }
@@ -99,11 +113,34 @@ namespace TillerTide.App
             }
         }
 
-        private static string CachePath(string kind, RegionInfo region)
+        private static IEnumerator FetchBytes(string url, string cachePath, Action<byte[]> result)
+        {
+            if (File.Exists(cachePath))
+            {
+                result(File.ReadAllBytes(cachePath));
+                yield break;
+            }
+            using (var req = UnityWebRequest.Get(url))
+            {
+                req.timeout = 60;
+                yield return req.SendWebRequest();
+                var data = req.downloadHandler.data;
+                // A WCS error comes back as XML, so only keep answers that start like a TIFF.
+                if (req.result == UnityWebRequest.Result.Success && data != null && data.Length > 8 &&
+                    ((data[0] == 'I' && data[1] == 'I') || (data[0] == 'M' && data[1] == 'M')))
+                {
+                    try { File.WriteAllBytes(cachePath, data); } catch (Exception e) { Debug.LogWarning("Cache write failed: " + e.Message); }
+                    result(data);
+                }
+                else Debug.LogWarning("Depth download failed: " + (req.error ?? "not a TIFF"));
+            }
+        }
+
+        private static string CachePath(string kind, RegionInfo region, string ext = ".json")
         {
             string name = region.Name;
             foreach (char c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
-            return Path.Combine(Application.persistentDataPath, $"{kind}-{name.Replace(' ', '_')}.json");
+            return Path.Combine(Application.persistentDataPath, $"{kind}-{name.Replace(' ', '_')}{ext}");
         }
 
         private static void TryDelete(string path)

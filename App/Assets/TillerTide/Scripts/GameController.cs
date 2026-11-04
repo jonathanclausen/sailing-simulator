@@ -2,6 +2,8 @@ using System.Collections;
 using TillerTide.Physics;
 using TillerTide.Physics.Racing;
 using TillerTide.Physics.Region;
+using TillerTide.Physics.Traffic;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -28,6 +30,11 @@ namespace TillerTide.App
         private BuoyField _buoys;
         private CourseRunner _runner;
         private int _courseMode; // 0 off, 1 windward-leeward, 2 buoy tour
+        private readonly List<Ferry> _ferries = new List<Ferry>();
+        private readonly List<FerryVisual> _ferryVisuals = new List<FerryVisual>();
+        private double _ferryClock;
+        private float _lastHorn = -100;
+        private SoundScape _sound;
         private Vec2 _start;
         private int _currentMode; // 0 none, 1 north-going, 2 south-going
         private bool _ready;
@@ -70,6 +77,9 @@ namespace TillerTide.App
             cam.fieldOfView = 55f;
             cam.transform.position = new Vector3(0, 4, -12);
             _cam = cam.gameObject.AddComponent<ChaseCamera>();
+            if (cam.GetComponent<AudioListener>() == null) cam.gameObject.AddComponent<AudioListener>();
+            cam.gameObject.AddComponent<AudioSource>();
+            _sound = cam.gameObject.AddComponent<SoundScape>();
 
             foreach (var l in FindObjectsByType<Light>(FindObjectsSortMode.None)) if (l.type == LightType.Directional) Destroy(l.gameObject);
             var sun = new GameObject("Sun").AddComponent<Light>();
@@ -122,6 +132,15 @@ namespace TillerTide.App
             _buoys = new GameObject("Buoys").AddComponent<BuoyField>();
             _buoys.Build(_region.Seamarks);
 
+            // The Helsingør–Helsingborg ferries, on a timetable that follows the clock so each launch differs.
+            if (_region.HasCoast)
+            {
+                _ferries.AddRange(Ferry.HelsingorHelsingborg(proj, p => grid.NearestWater(p, 6)));
+                var ferryRoot = new GameObject("Ferries").transform;
+                foreach (var f in _ferries) _ferryVisuals.Add(FerryVisual.Create(f, ferryRoot));
+                _ferryClock = System.DateTime.Now.TimeOfDay.TotalSeconds;
+            }
+
             _windField = new GustyWind(_wind.FromDeg * Angles.Deg, _wind.SpeedMs, seed: 7)
             {
                 GustStrength = Mathf.Clamp((_wind.GustMs - _wind.SpeedMs) / Mathf.Max(1f, _wind.SpeedMs), 0.1f, 0.45f),
@@ -129,7 +148,8 @@ namespace TillerTide.App
             _waves.SetFromWind(_wind.FromDeg, _wind.SpeedMs);
 
             var cfg = new BoatConfig();
-            _sim = new BoatSimulator(cfg, _windField, CurrentFor(0), grid);
+            IWindField wind = _region.HasCoast ? new LandShadowWind(_windField, grid) : (IWindField)_windField;
+            _sim = new BoatSimulator(cfg, wind, CurrentFor(0), grid);
             _start = grid.NearestWater(proj.ToLocal(Region.StartLat, Region.StartLon));
             PlaceAtStart();
 
@@ -149,6 +169,7 @@ namespace TillerTide.App
             _hud.OnCameraBehind = () => _cam.SnapBehind();
             _hud.OnCycleCourse = CycleCourse;
             _cam.IsOverHud = _hud.IsOverHud;
+            _hud.Chart = new ChartView(grid) { Seamarks = _region.Seamarks, Ferries = _ferries };
         }
 
         private void CycleCourse()
@@ -167,6 +188,7 @@ namespace TillerTide.App
             }
             _runner = course != null ? new CourseRunner(course, _sim.State.Time) : null;
             _hud.Runner = _runner;
+            _hud.BestTime = course != null ? Format(PlayerPrefs.GetFloat(BestKey, 0)) : "";
             _buoys.ShowCourse(course);
             _buoys.SetNext(_runner?.Next);
             if (course != null) _hud.Flash(course.Name + ": go!");
@@ -203,17 +225,68 @@ namespace TillerTide.App
             _sim.Advance(Time.deltaTime);
             _boat.Apply(_sim, _waves, t, Time.deltaTime);
             _buoys.Animate(_waves, t, _cam.transform.position);
+            UpdateFerries(t);
+            var tel = _sim.Telemetry;
+            _sound.ApparentWind = (float)tel.ApparentWindSpeed;
+            _sound.BoatSpeed = (float)tel.SpeedThroughWater;
+            _sound.Luffing = _sim.State.Capsized ? 0 : (float)tel.LuffingFraction;
 
             if (_runner != null)
             {
                 var ev = _runner.Update(_sim.State.Position, _sim.State.Time);
-                if (ev == CourseEvent.MarkRounded) { _hud.Flash($"Mark {_runner.NextIndex} rounded"); _buoys.SetNext(_runner.Next); }
+                if (ev == CourseEvent.MarkRounded) { _hud.Flash($"Mark {_runner.NextIndex} rounded"); _buoys.SetNext(_runner.Next); _sound.Chime(); }
                 else if (ev == CourseEvent.Finished)
                 {
-                    var ts = System.TimeSpan.FromSeconds(_runner.Elapsed(_sim.State.Time));
-                    _hud.Flash($"Finished in {(int)ts.TotalMinutes}:{ts.Seconds:00}", 6f);
+                    float time = (float)_runner.Elapsed(_sim.State.Time);
+                    float best = PlayerPrefs.GetFloat(BestKey, 0);
+                    bool record = best <= 0 || time < best;
+                    if (record) { PlayerPrefs.SetFloat(BestKey, time); PlayerPrefs.Save(); _hud.BestTime = Format(time); }
+                    _hud.Flash($"Finished in {Format(time)}" + (record ? ": new best!" : $" (best {Format(best)})"), 6f);
                     _buoys.SetNext(null);
+                    _sound.Chime();
                 }
+            }
+        }
+
+        private string BestKey => $"best-{Region.Name}-{_courseMode}";
+
+        private static string Format(float seconds)
+        {
+            if (seconds <= 0) return "";
+            var ts = System.TimeSpan.FromSeconds(seconds);
+            return $"{(int)ts.TotalMinutes}:{ts.Seconds:00}";
+        }
+
+        private void UpdateFerries(float t)
+        {
+            if (_ferries.Count == 0) return;
+            double clock = _ferryClock + _sim.State.Time;
+            var boat = _sim.State.Position;
+            float hornLevel = 0;
+            for (int i = 0; i < _ferries.Count; i++)
+            {
+                var f = _ferries[i];
+                f.Update(clock);
+                _ferryVisuals[i].Apply(_waves, t);
+                if (!_sim.State.Capsized && f.Hits(boat, 1.0))
+                {
+                    // Run down by the ferry: knocked flat and pushed clear of the hull.
+                    var away = Vec2.FromBearing(f.Heading + System.Math.PI / 2);
+                    if (Vec2.Dot(boat - f.Position, away) < 0) away = -away;
+                    _sim.State.Position = f.Position + away * (Ferry.Beam / 2 + 6) + (boat - f.Position - away * Vec2.Dot(boat - f.Position, away));
+                    _sim.State.Surge = 0; _sim.State.Sway = 0;
+                    _sim.State.Heel = 1.7; _sim.State.Capsized = true;
+                    _hud.Flash($"Hit by the ferry {f.Name}! Ferries can't stop: keep clear.", 5f);
+                }
+                if (f.IsInPath(boat, 350))
+                    hornLevel = Mathf.Max(hornLevel, Mathf.Clamp01(1.2f - (float)Vec2.Distance(boat, f.Position) / 600f));
+            }
+            if (hornLevel > 0 && Time.time - _lastHorn > 25f)
+            {
+                _lastHorn = Time.time;
+                _sound.HornLevel = hornLevel;
+                _sound.Horn();
+                _hud.Flash("Ferry horn! You're in its path: get clear.", 4f);
             }
         }
 
