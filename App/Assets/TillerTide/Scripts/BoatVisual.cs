@@ -246,7 +246,7 @@ namespace TillerTide.App
                     {
                         float a = Mathf.PI * j / around; // 0 = port sheer, π = starboard sheer
                         float x = -Mathf.Cos(a) * hb;
-                        float y = sheer + 0.04f * s - Mathf.Pow(Mathf.Sin(a), 0.6f) * d;
+                        float y = sheer + 0.04f * s - Mathf.Pow(Mathf.Max(0f, Mathf.Sin(a)), 0.6f) * d;
                         verts.Add(new Vector3(x, y, z));
                     }
                 }

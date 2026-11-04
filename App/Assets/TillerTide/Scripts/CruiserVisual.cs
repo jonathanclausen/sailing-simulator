@@ -298,7 +298,7 @@ namespace TillerTide.App
         private static float HalfBeam(float s)
         {
             float b = s < 0.45f ? Mathf.Lerp(0.86f, 1f, Mathf.Sin(s / 0.45f * Mathf.PI / 2))
-                                : Mathf.Pow(Mathf.Cos((s - 0.45f) / 0.55f * Mathf.PI / 2), 0.75f);
+                                : Mathf.Pow(Mathf.Max(0f, Mathf.Cos((s - 0.45f) / 0.55f * Mathf.PI / 2)), 0.75f);
             return Mathf.Max(0.03f, b) * Beam / 2;
         }
 
@@ -330,7 +330,7 @@ namespace TillerTide.App
                 {
                     // Round from port sheer, down through a firm bilge and flat-ish bottom, up to starboard sheer.
                     float a = Mathf.PI * j / around;
-                    float sinA = Mathf.Sin(a);
+                    float sinA = Mathf.Max(0f, Mathf.Sin(a)); // sin(PI) is slightly negative in float, and Pow of that is NaN
                     float x = -Mathf.Cos(a) * hb * Mathf.Lerp(1f, 0.92f, sinA);
                     float y = Mathf.Lerp(top, bottom, Mathf.Pow(sinA, 0.45f));
                     verts.Add(new Vector3(x, y, z));
