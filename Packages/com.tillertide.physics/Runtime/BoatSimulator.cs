@@ -98,44 +98,38 @@ namespace TillerTide.Physics
             double boom = Math.Abs(boomNew);
             boomSide = boomNew >= 0 ? 1 : -1;
             double twistHead = (c.TwistInDeg + (c.TwistOutDeg - c.TwistInDeg) * sheet) * Angles.Deg;
+            int reefs = Math.Max(0, Math.Min(Controls.Reef, c.MaxReefs));
+            double mainLuff = c.LuffLength * (1 - c.ReefLuffFactor * reefs), mainFoot = c.FootLength * (1 - c.ReefFootFactor * reefs);
+            var main = Strips(c.Sail, c.SailStrips, c.MastX, c.BoomHeight, mainLuff, mainFoot, boom, boomSide, twistHead,
+                              c.MaxBoomAngleDeg * Angles.Deg, 1.0, fwd, stb, vGround, s, cosPhi, sinPhi);
 
-            double sailX = 0, sailYh = 0, sailK = 0, luffArea = 0, midAlpha = 0, awsMid = 0, awaMid = 0;
-            int n = Math.Max(1, c.SailStrips);
-            for (int k = 0; k < n; k++)
+            // ---------- Headsail ----------
+            // No boom: the clew goes to leeward as soon as the wind is on the other side, out as far as the sheet
+            // allows. Near dead downwind it can stay on the windward side (goosewinged). Downwind on the same side
+            // as the main it sits in the main's wind shadow.
+            var jib = default(SailResult);
+            double jibNew = 0, jibSheetMax = 0;
+            if (c.HasJib)
             {
-                double f = (k + 0.5) / n;
-                double hk = c.BoomHeight + f * c.LuffLength;
-                double chord = c.FootLength * (1 - f);
-                double area = chord * c.LuffLength / n;
-                ApparentAt(hk, fwd, stb, vGround, s, cosPhi, true, out double af, out double ar);
-                double aws = Math.Sqrt(af * af + ar * ar);
-                if (aws < 1e-6) continue;
-                double awa = Math.Atan2(-ar, -af);
-                double sailAngle = Math.Min(boom + twistHead * f, c.MaxBoomAngleDeg * Angles.Deg + twistHead);
-                // Chord from mast to leech, and the direction the air flows; the angle between them is the angle of attack.
-                double dx = -Math.Cos(sailAngle), dy = boomSide * Math.Sin(sailAngle);
-                double fx0 = af / aws, fy0 = ar / aws;
-                double alpha = Math.Atan2(dx * fy0 - dy * fx0, dx * fx0 + dy * fy0);
-                double a = Math.Abs(alpha);
-                double cl, cd;
-                if (alpha * boomSide > 0 && a < c.LuffBandDeg * Angles.Deg)
-                {
-                    // Wind on the wrong face but only just: the sail is flapping.
-                    cl = 0; cd = c.Sail.LuffDrag; luffArea += area;
-                }
-                else { cl = c.Sail.Lift[a / Angles.Deg]; cd = c.Sail.Drag[a / Angles.Deg]; }
-                if (a > Math.PI / 2) cl = 0; // flow from the leech: drag only
-                double q = 0.5 * AirDensity * aws * aws * area;
-                double sgn = alpha >= 0 ? 1 : -1;
-                double fx = q * (cl * sgn * -fy0 + cd * fx0);
-                double fyh = q * (cl * sgn * fx0 + cd * fy0);  // perpendicular to the mast
-                sailX += fx; sailYh += fyh; sailK += fyh * hk;
-                double ceX = c.MastX - 0.4 * chord * Math.Cos(sailAngle);
-                double ceY = boomSide * 0.4 * chord * Math.Sin(sailAngle) + hk * sinPhi;
-                N += ceX * fyh * cosPhi - ceY * fx;
-                if (k == n / 2) { midAlpha = alpha * -boomSide; awsMid = aws; awaMid = awa; }
+                double jibSheet = Angles.Clamp(Controls.JibSheet, 0, 1);
+                jibSheetMax = (c.MinJibAngleDeg + (c.MaxJibAngleDeg - c.MinJibAngleDeg) * jibSheet) * Angles.Deg;
+                int jibSide = s.Jib > 0 ? 1 : (s.Jib < 0 ? -1 : -windSide);
+                if (jibSide == windSide && Math.Abs(awaRef) < Math.PI - 15 * Angles.Deg) jibSide = -windSide;
+                double jibTarget = jibSide * (jibSide == windSide ? jibSheetMax : Math.Min(jibSheetMax, Math.Abs(awaRef)));
+                double jibRate = Angles.Clamp((jibTarget - s.Jib) * 10, -150 * Angles.Deg, 150 * Angles.Deg);
+                jibNew = s.Jib + jibRate * dt;
+                int jibSideNew = jibNew >= 0 ? 1 : -1;
+                double shadow = jibSideNew == boomSide
+                    ? 1 - 0.75 * Angles.Clamp((Math.Abs(awaRef) - 135 * Angles.Deg) / (30 * Angles.Deg), 0, 1) : 1;
+                double jibTwist = (c.JibTwistInDeg + (c.JibTwistOutDeg - c.JibTwistInDeg) * jibSheet) * Angles.Deg;
+                jib = Strips(c.JibSail, c.JibStrips, c.JibTackX, c.JibTackHeight, c.JibLuffLength, c.JibFootLength,
+                             Math.Abs(jibNew), jibSideNew, jibTwist, c.MaxJibAngleDeg * Angles.Deg, shadow, fwd, stb, vGround, s, cosPhi, sinPhi);
             }
-            if (s.Capsized) { sailX = 0; sailYh = 0; sailK = 0; N = 0; }
+
+            double sailX = main.X + jib.X, sailYh = main.Yh + jib.Yh, sailK = main.K + jib.K;
+            if (s.Capsized) { sailX = 0; sailYh = 0; sailK = 0; }
+            else N += main.N + jib.N;
+            double luffArea = main.LuffArea, midAlpha = main.MidAlpha, awsMid = main.AwsMid, awaMid = main.AwaMid;
             X += sailX; Y += sailYh * cosPhi; K += sailK;
 
             // ---------- Foils ----------
@@ -153,7 +147,7 @@ namespace TillerTide.Physics
             double hullRes = rf + rr;
             X -= hullRes;
             Y -= 0.5 * WaterDensity * c.HullLateralArea * 1.0 * v * Math.Abs(v);
-            N -= 40 * r + 220 * r * Math.Abs(r);
+            N -= c.YawDampingLinear * r + c.YawDampingQuadratic * r * Math.Abs(r);
 
             // ---------- Heel ----------
             double phiDeg = Math.Abs(phi) / Angles.Deg;
@@ -179,7 +173,7 @@ namespace TillerTide.Physics
                 // Crew weight shifted off the centreline (hull GZ already includes the crew sitting centrally).
                 K += c.CrewMass * Gravity * crew * c.CrewMaxArm * cosPhi;
             }
-            K -= 120 * s.HeelRate + 250 * s.HeelRate * Math.Abs(s.HeelRate);
+            K -= c.RollDampingLinear * s.HeelRate + c.RollDampingQuadratic * s.HeelRate * Math.Abs(s.HeelRate);
 
             // ---------- Integrate (semi-implicit Euler) ----------
             double mx = c.Displacement * (1 + c.SurgeAddedMassFactor);
@@ -193,6 +187,7 @@ namespace TillerTide.Physics
             s.Heading = Angles.Wrap2Pi(s.Heading + s.YawRate * dt);
             s.CrewOffset = crew;
             s.Boom = boomNew;
+            s.Jib = jibNew;
             s.Hike = windSide * crew;
             if (Math.Abs(s.Heel) > c.CapsizeHeelDeg * Angles.Deg) s.Capsized = true;
 
@@ -230,20 +225,82 @@ namespace TillerTide.Physics
                 BoomAngle = boom,
                 BoomSide = boomSide,
                 SailAngleOfAttack = midAlpha,
-                LuffingFraction = luffArea / c.SailArea,
+                LuffingFraction = main.Area > 0 ? luffArea / main.Area : 0,
                 DriveForce = sailX,
                 SideForce = sailYh * cosPhi,
                 HeelingMoment = sailK,
                 RudderAngle = rudderAngle,
                 RudderStalled = rudderStall,
                 HullResistance = hullRes,
+                JibAngle = jibNew,
+                JibAngleOfAttack = jib.MidAlpha,
+                JibLuffingFraction = jib.Area > 0 ? jib.LuffArea / jib.Area : 0,
             };
+            if (!c.HasJib) t.JibFlow = SailFlow.Attached;
+            else if (t.JibLuffingFraction > 0.5) t.JibFlow = SailFlow.Luffing;
+            else if (jib.MidAlpha > SailPolar.StallAngleDeg * Angles.Deg)
+                t.JibFlow = Math.Abs(awaRef) > 110 * Angles.Deg && Math.Abs(jibNew) >= jibSheetMax - 1e-3 ? SailFlow.Running : SailFlow.Stalled;
+            else t.JibFlow = SailFlow.Attached;
             if (t.LuffingFraction > 0.5) t.SailFlow = SailFlow.Luffing;
             else if (midAlpha > SailPolar.StallAngleDeg * Angles.Deg)
                 t.SailFlow = boom >= sheetMax - 1e-9 && sheet > 0.95 || Math.Abs(awaRef) > 110 * Angles.Deg && boom >= sheetMax - 1e-9 && boom > 75 * Angles.Deg
                     ? SailFlow.Running : SailFlow.Stalled;
             else t.SailFlow = SailFlow.Attached;
             Telemetry = t;
+        }
+
+        private struct SailResult
+        {
+            public double X, Yh, K, N, Area, LuffArea, MidAlpha, AwsMid, AwaMid;
+        }
+
+        /// <summary>
+        /// Forces from one triangular sail, split into horizontal strips. Each strip sees its own apparent wind,
+        /// sits at its own angle (clew angle + twist) and produces lift and drag from the sail polar.
+        /// </summary>
+        private SailResult Strips(SailPolar polar, int strips, double luffX, double footHeight, double luff, double foot,
+            double angle, int side, double twistHead, double maxAngle, double effectiveness,
+            Vec2 fwd, Vec2 stb, Vec2 vGround, in BoatState s, double cosPhi, double sinPhi)
+        {
+            var c = Config;
+            var r = new SailResult();
+            int n = Math.Max(1, strips);
+            for (int k = 0; k < n; k++)
+            {
+                double f = (k + 0.5) / n;
+                double hk = footHeight + f * luff;
+                double chord = foot * (1 - f);
+                double area = chord * luff / n;
+                r.Area += area;
+                ApparentAt(hk, fwd, stb, vGround, s, cosPhi, true, out double af, out double ar);
+                double aws = Math.Sqrt(af * af + ar * ar);
+                if (aws < 1e-6) continue;
+                double awa = Math.Atan2(-ar, -af);
+                double sailAngle = Math.Min(angle + twistHead * f, maxAngle + twistHead);
+                // Chord from luff to leech, and the direction the air flows; the angle between them is the angle of attack.
+                double dx = -Math.Cos(sailAngle), dy = side * Math.Sin(sailAngle);
+                double fx0 = af / aws, fy0 = ar / aws;
+                double alpha = Math.Atan2(dx * fy0 - dy * fx0, dx * fx0 + dy * fy0);
+                double a = Math.Abs(alpha);
+                double cl, cd;
+                if (alpha * side > 0 && a < c.LuffBandDeg * Angles.Deg)
+                {
+                    // Wind on the wrong face but only just: the sail is flapping.
+                    cl = 0; cd = polar.LuffDrag; r.LuffArea += area;
+                }
+                else { cl = polar.Lift[a / Angles.Deg]; cd = polar.Drag[a / Angles.Deg]; }
+                if (a > Math.PI / 2) cl = 0; // flow from the leech: drag only
+                double q = 0.5 * AirDensity * aws * aws * area * effectiveness;
+                double sgn = alpha >= 0 ? 1 : -1;
+                double fx = q * (cl * sgn * -fy0 + cd * fx0);
+                double fyh = q * (cl * sgn * fx0 + cd * fy0);  // perpendicular to the mast
+                r.X += fx; r.Yh += fyh; r.K += fyh * hk;
+                double ceX = luffX - 0.4 * chord * Math.Cos(sailAngle);
+                double ceY = side * 0.4 * chord * Math.Sin(sailAngle) + hk * sinPhi;
+                r.N += ceX * fyh * cosPhi - ceY * fx;
+                if (k == n / 2) { r.MidAlpha = alpha * -side; r.AwsMid = aws; r.AwaMid = awa; }
+            }
+            return r;
         }
 
         /// <summary>Apparent wind at a height on the mast, in the heeled sail plane (forward, across-mast).</summary>

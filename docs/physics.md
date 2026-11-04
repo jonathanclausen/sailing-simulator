@@ -52,3 +52,35 @@ comes once we pick the first boat.
 - No pitch or heave yet; waves don't affect speed.
 - One sail (no jib or spinnaker) and no vang or cunningham, so depowering in strong wind is by easing only.
 - The autopilot's sheet trimmer is simple and limits upwind speed in heavy air.
+
+## The real place
+
+- **Coastline** from OpenStreetMap becomes a signed-distance grid (25 m cells): positive on land, negative at sea.
+- **Depth** comes from EMODnet's digital bathymetry (about 115 m cells; the app asks for ~230 m). Within 300 m of
+  the beach the coastline's shelf (8 cm of depth per metre out) limits it, so beaches stay beaches even where the
+  soundings are coarse, and real shoals still show. Without soundings the shelf is used everywhere, capped at 30 m.
+- **Wind shadow**: wind blowing off the land loses up to half its speed at the beach and recovers over ~350 m of
+  open water (less aloft). The distance to land upwind is found by sphere-tracing the distance field.
+- **Ferries** shuttle between Helsingør and Helsingborg on a 50-minute cycle (5 min at each berth, 20 min crossing,
+  peak ~14 kn), three on the route. Being inside a hull knocks you flat.
+
+## The 40 ft cruiser
+
+`BoatConfig.Cruiser40()` is a generic modern 12.2 m cruising sloop: 8.6 t with crew, 11.2 m waterline, fin keel
+with a bulb (2.0 m draft), spade rudder, 35 m² mainsail (two reefs) and a 37 m² 105% genoa. The headsail is a
+second strip-theory sail on the forestay with its own sheet; it crosses to leeward on its own, can goosewing near
+dead downwind and is blanketed by the main on a broad reach. The ballast keel's righting lever keeps rising to
+~60° heel, so a knockdown comes back up instead of capsizing. Polar (knots, from `dotnet run --project
+dotnet/TillerTide.Polar -- --cruiser`):
+
+| TWA \ TWS | 6 | 10 | 14 | 18 | 22 |
+| --- | --- | --- | --- | --- | --- |
+| 45° | 4.2 | 6.2 | 7.3 | 7.5 | 7.5 |
+| 60° | 4.7 | 6.6 | 7.7 | 8.1 | 8.2 |
+| 90° | 4.8 | 6.8 | 7.9 | 8.8 | 9.7 |
+| 135° | 3.5 | 5.5 | 7.0 | 8.0 | 8.8 |
+| 150° | 2.9 | 4.8 | 6.3 | 7.3 | 8.2 |
+
+Upwind in 14 knots it heels ~19° with ~4° of leeway and a little weather helm. The effective centre of lateral
+resistance (`BoardX`) sits forward of the keel to stand in for the hull's own lift, which the model doesn't
+compute separately.

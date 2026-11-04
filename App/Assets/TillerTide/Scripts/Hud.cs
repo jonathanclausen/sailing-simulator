@@ -1,0 +1,331 @@
+using System;
+using System.Collections.Generic;
+using TillerTide.Physics;
+using TillerTide.Physics.Racing;
+using UnityEngine;
+
+namespace TillerTide.App
+{
+    /// <summary>
+    /// Instruments and touch controls. Steering (bottom left, springs back to centre like a tiller you let go of)
+    /// and the mainsheet (right edge, stays where you leave it) are read from raw touches, so you can steer and
+    /// trim at the same time. Drawn with IMGUI in a 390-point-wide portrait layout.
+    /// </summary>
+    public sealed class Hud : MonoBehaviour
+    {
+        public BoatSimulator Sim;
+        public Func<string> WindStatus = () => "";
+        public Func<string> MapStatus = () => "";
+        public Func<string> CurrentLabel = () => "";
+        public Action OnReset, OnCycleCurrent, OnCameraBehind, OnCycleCourse;
+        public CourseRunner Runner;
+        public ChartView Chart;
+        public string BestTime = "";
+        private bool _fullChart;
+        private Rect _mini;
+
+        private string _flash;
+        private float _flashUntil;
+
+        /// <summary>Show a short message in the middle of the screen for a few seconds.</summary>
+        public void Flash(string message, float seconds = 3f) { _flash = message; _flashUntil = Time.time + seconds; }
+
+        public float Steer;           // -1..1
+        public float Sheet = 0.35f;   // 0 in .. 1 out
+        public float JibSheet = 0.35f;
+        public bool HasJib;
+        public int Reef;
+        public Action OnReef;
+        private Rect _jibBar;
+        private int _jibFinger = -1;
+        private bool _mouseJib;
+
+        private const float LayoutWidth = 390f;
+        private float _scale = 1, _w, _h, _top, _bottom;
+        private Rect _steerPad, _sheetBar, _topBar, _buttons;
+        private readonly List<Rect> _hudRects = new List<Rect>();
+        private int _steerFinger = -1, _sheetFinger = -1;
+        private bool _mouseSteer, _mouseSheet;
+        private GUIStyle _big, _small, _label, _button, _hint;
+        private Texture2D _white;
+
+        private void Layout()
+        {
+            _scale = Screen.width / LayoutWidth;
+            if (Screen.width > Screen.height) _scale = Screen.height / 600f; // landscape (Mac/editor)
+            _w = Screen.width / _scale; _h = Screen.height / _scale;
+            var safe = Screen.safeArea;
+            _top = (Screen.height - safe.yMax) / _scale + 6;
+            _bottom = safe.y / _scale + 8;
+            _topBar = new Rect(8, _top, _w - 16, 92);
+            float bars = HasJib ? 140 : 96;
+            _steerPad = new Rect(12, _h - _bottom - 92, _w - bars - 34, 84);
+            _sheetBar = new Rect(_w - (HasJib ? 66 : 96), _h - _bottom - 330, HasJib ? 58 : 84, 322);
+            _jibBar = HasJib ? new Rect(_w - 132, _h - _bottom - 330, 58, 322) : new Rect(-1000, -1000, 0, 0);
+            _buttons = new Rect(12, _h - _bottom - 140, _w - bars - 34, 40);
+            _mini = new Rect(_w - 118, _topBar.yMax + 8, 110, 110);
+            _hudRects.Clear();
+            _hudRects.Add(_topBar); _hudRects.Add(_steerPad); _hudRects.Add(_sheetBar); _hudRects.Add(_buttons);
+            if (HasJib) _hudRects.Add(_jibBar);
+            if (Chart != null) _hudRects.Add(_fullChart ? new Rect(0, 0, _w, _h) : _mini);
+        }
+
+        private Vector2 ToGui(Vector2 screen) => new Vector2(screen.x / _scale, (Screen.height - screen.y) / _scale);
+
+        /// <summary>True when a screen point (origin bottom-left) is on a control, so the camera ignores it.</summary>
+        public bool IsOverHud(Vector2 screen)
+        {
+            var g = ToGui(screen);
+            foreach (var r in _hudRects) if (r.Contains(g)) return true;
+            return false;
+        }
+
+        private void Update()
+        {
+            Layout();
+            bool steering = false;
+            if (_fullChart) { Steer = Mathf.MoveTowards(Steer, 0, 3f * Time.deltaTime); return; }
+
+            for (int i = 0; i < Input.touchCount; i++)
+            {
+                var t = Input.GetTouch(i);
+                var g = ToGui(t.position);
+                bool ended = t.phase == TouchPhase.Ended || t.phase == TouchPhase.Canceled;
+                if (t.phase == TouchPhase.Began)
+                {
+                    if (_steerPad.Contains(g)) _steerFinger = t.fingerId;
+                    else if (_sheetBar.Contains(g)) _sheetFinger = t.fingerId;
+                    else if (_jibBar.Contains(g)) _jibFinger = t.fingerId;
+                }
+                if (t.fingerId == _jibFinger)
+                {
+                    if (ended) _jibFinger = -1;
+                    else JibSheet = BarValue(_jibBar, g);
+                }
+                if (t.fingerId == _steerFinger)
+                {
+                    if (ended) _steerFinger = -1;
+                    else { SteerFrom(g); steering = true; }
+                }
+                if (t.fingerId == _sheetFinger)
+                {
+                    if (ended) _sheetFinger = -1;
+                    else SheetFrom(g);
+                }
+            }
+
+            if (!Input.touchSupported)
+            {
+                var g = ToGui(Input.mousePosition);
+                if (Input.GetMouseButtonDown(0)) { _mouseSteer = _steerPad.Contains(g); _mouseSheet = _sheetBar.Contains(g); _mouseJib = _jibBar.Contains(g); }
+                if (Input.GetMouseButtonUp(0)) _mouseSteer = _mouseSheet = _mouseJib = false;
+                if (_mouseJib) JibSheet = BarValue(_jibBar, g);
+                if (_mouseSteer) { SteerFrom(g); steering = true; }
+                if (_mouseSheet) SheetFrom(g);
+            }
+
+            // Keyboard: arrows / A D steer, W S trim, R reset.
+            float key = (Input.GetKey(KeyCode.RightArrow) || Input.GetKey(KeyCode.D) ? 1 : 0) - (Input.GetKey(KeyCode.LeftArrow) || Input.GetKey(KeyCode.A) ? 1 : 0);
+            if (key != 0) { Steer = Mathf.MoveTowards(Steer, key, 2.5f * Time.deltaTime); steering = true; }
+            if (Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.UpArrow)) Sheet = Mathf.Clamp01(Sheet - 0.5f * Time.deltaTime);
+            if (Input.GetKey(KeyCode.S) || Input.GetKey(KeyCode.DownArrow)) Sheet = Mathf.Clamp01(Sheet + 0.5f * Time.deltaTime);
+            if (Input.GetKey(KeyCode.Q)) JibSheet = Mathf.Clamp01(JibSheet - 0.5f * Time.deltaTime);
+            if (Input.GetKey(KeyCode.E)) JibSheet = Mathf.Clamp01(JibSheet + 0.5f * Time.deltaTime);
+            if (Input.GetKeyDown(KeyCode.F)) OnReef?.Invoke();
+            if (Input.GetKeyDown(KeyCode.R)) OnReset?.Invoke();
+
+            if (!steering) Steer = Mathf.MoveTowards(Steer, 0, 3f * Time.deltaTime);
+        }
+
+        private void SteerFrom(Vector2 g) => Steer = Mathf.Clamp((g.x - _steerPad.center.x) / (_steerPad.width * 0.42f), -1, 1);
+        private void SheetFrom(Vector2 g) => Sheet = BarValue(_sheetBar, g);
+        private static float BarValue(Rect bar, Vector2 g) => Mathf.Clamp01((g.y - bar.y - 20) / (bar.height - 40));
+
+        private void Styles()
+        {
+            if (_big != null) return;
+            _white = Texture2D.whiteTexture;
+            _big = new GUIStyle(GUI.skin.label) { fontSize = 26, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
+            _big.normal.textColor = Color.white;
+            _big.wordWrap = false; _big.clipping = TextClipping.Clip;
+            _small = new GUIStyle(_big) { fontSize = 11, fontStyle = FontStyle.Normal };
+            _small.normal.textColor = new Color(1, 1, 1, 0.75f);
+            _label = new GUIStyle(_small) { fontSize = 12, alignment = TextAnchor.MiddleLeft };
+            _hint = new GUIStyle(_big) { fontSize = 15 };
+            _button = new GUIStyle(GUI.skin.button) { fontSize = 12, clipping = TextClipping.Clip };
+        }
+
+        private void Box(Rect r, Color c)
+        {
+            var old = GUI.color; GUI.color = c;
+            GUI.DrawTexture(r, _white);
+            GUI.color = old;
+        }
+
+        private void OnGUI()
+        {
+            if (Sim == null) return;
+            Styles();
+            Layout();
+            GUI.matrix = Matrix4x4.Scale(new Vector3(_scale, _scale, 1));
+            var panel = new Color(0.05f, 0.12f, 0.2f, 0.55f);
+            var s = Sim.State; var tel = Sim.Telemetry;
+
+            // Instruments.
+            Box(_topBar, panel);
+            float cw = _topBar.width / 5;
+            Instrument(0, cw, $"{Units.ToKnots(tel.SpeedOverGround):F1}", "SPEED kn");
+            Instrument(1, cw, $"{s.Heading * Mathf.Rad2Deg:000}°", "HEADING");
+            Instrument(2, cw, $"{Units.ToKnots(tel.TrueWindSpeed):F0}", $"WIND {LiveWind.Compass((float)(tel.TrueWindDirection * Mathf.Rad2Deg))}");
+            Instrument(3, cw, $"{Mathf.Abs((float)(s.Heel * Mathf.Rad2Deg)):F0}°", "HEEL");
+            double depth = Sim.Depth != null ? Sim.Depth.DepthAt(s.Position) : 99;
+            var oldBig = _big.normal.textColor;
+            if (depth < 2) _big.normal.textColor = new Color(1f, 0.45f, 0.35f);
+            Instrument(4, cw, depth >= 50 ? "50+" : depth.ToString(depth < 10 ? "F1" : "F0"), "DEPTH m");
+            _big.normal.textColor = oldBig;
+            GUI.Label(new Rect(_topBar.x + 8, _topBar.y + 62, _topBar.width - 16, 14), WindStatus(), _label);
+            GUI.Label(new Rect(_topBar.x + 8, _topBar.y + 76, _topBar.width - 16, 14), $"{MapStatus()}  ·  {CurrentLabel()}", _label);
+
+            float? markRel = null;
+            if (Runner != null && Runner.Next != null)
+                markRel = (float)(Angles.WrapPi(Runner.BearingToNext(s.Position) - s.Heading) * Mathf.Rad2Deg);
+            WindArrow(new Rect(_w / 2 - 34, _topBar.yMax + 8, 68, 68), (float)(tel.ApparentWindAngle * Mathf.Rad2Deg), (float)(tel.TrueWindAngle * Mathf.Rad2Deg), markRel);
+            CoursePanel(s);
+
+            // Trim hint.
+            string hint; Color hc;
+            if (s.Capsized) { hint = "Capsized! Tap Recover"; hc = new Color(1, 0.4f, 0.3f); }
+            else if (s.Aground) { hint = "Aground: steer to deeper water"; hc = new Color(1, 0.6f, 0.2f); }
+            else if (Mathf.Abs((float)tel.TrueWindAngle) < 38 * Mathf.Deg2Rad && tel.SpeedThroughWater < 0.8) { hint = "In irons: bear away"; hc = new Color(1, 0.8f, 0.3f); }
+            else if (HasJib && Mathf.Abs((float)s.Heel) > 28 * Mathf.Deg2Rad) { hint = "Overpowered: ease the main or reef"; hc = new Color(1, 0.55f, 0.3f); }
+            else
+            {
+                string main = HasJib ? "Main" : "Sail";
+                switch (tel.SailFlow)
+                {
+                    case SailFlow.Luffing: hint = main + " luffing: sheet in"; hc = new Color(1, 0.85f, 0.3f); break;
+                    case SailFlow.Stalled: hint = main + " stalled: ease out"; hc = new Color(1, 0.6f, 0.3f); break;
+                    case SailFlow.Running: hint = "Running: ease right out"; hc = new Color(0.7f, 0.9f, 1f); break;
+                    default: hint = "Good trim"; hc = new Color(0.5f, 1f, 0.6f); break;
+                }
+                if (HasJib && tel.SailFlow != SailFlow.Luffing && tel.SailFlow != SailFlow.Stalled)
+                {
+                    if (tel.JibFlow == SailFlow.Luffing) { hint = "Jib luffing: trim the jib"; hc = new Color(1, 0.85f, 0.3f); }
+                    else if (tel.JibFlow == SailFlow.Stalled) { hint = "Jib stalled: ease the jib"; hc = new Color(1, 0.6f, 0.3f); }
+                }
+            }
+            var old = _hint.normal.textColor; _hint.normal.textColor = hc;
+            GUI.Label(new Rect(0, _topBar.yMax + 124, _w, 24), hint, _hint);
+            _hint.normal.textColor = old;
+
+            if (_flash != null && Time.time < _flashUntil)
+            {
+                Box(new Rect(_w / 2 - 140, _h * 0.42f, 280, 44), new Color(0.05f, 0.12f, 0.2f, 0.75f));
+                GUI.Label(new Rect(_w / 2 - 140, _h * 0.42f, 280, 44), _flash, _hint);
+            }
+
+            // Chart: a small map that opens into the full chart when tapped.
+            if (Chart != null)
+            {
+                if (_fullChart)
+                {
+                    Box(new Rect(0, 0, _w, _h), new Color(0.05f, 0.12f, 0.2f, 0.85f));
+                    Chart.DrawFull(new Rect(8, _top + 30, _w - 16, _h - _top - _bottom - 40), s, Runner);
+                    GUI.Label(new Rect(0, _top + 4, _w, 22), "Chart: tap to close", _hint);
+                    if (GUI.Button(new Rect(0, 0, _w, _h), GUIContent.none, GUIStyle.none)) _fullChart = false;
+                    return;
+                }
+                Box(new Rect(_mini.x - 2, _mini.y - 2, _mini.width + 4, _mini.height + 4), panel);
+                Chart.DrawMini(_mini, s, Runner);
+                if (GUI.Button(_mini, GUIContent.none, GUIStyle.none)) _fullChart = true;
+            }
+
+            // Buttons.
+            var labels = new List<string> { s.Capsized ? "Recover" : "Reset", "Course", "Current" };
+            var actions = new List<Action> { OnReset, OnCycleCourse, OnCycleCurrent };
+            if (OnReef != null) { labels.Add(Reef == 0 ? "Reef" : $"Reef {Reef}"); actions.Add(OnReef); }
+            labels.Add("Camera"); actions.Add(OnCameraBehind);
+            float bw = (_buttons.width - 5 * (labels.Count - 1)) / labels.Count;
+            for (int i = 0; i < labels.Count; i++)
+                if (GUI.Button(new Rect(_buttons.x + i * (bw + 5), _buttons.y, bw, _buttons.height), labels[i], _button)) actions[i]?.Invoke();
+
+            // Tiller pad.
+            Box(_steerPad, panel);
+            Box(new Rect(_steerPad.center.x - 1, _steerPad.y + 8, 2, _steerPad.height - 16), new Color(1, 1, 1, 0.3f));
+            float kx = _steerPad.center.x + Steer * _steerPad.width * 0.42f;
+            Box(new Rect(kx - 16, _steerPad.y + 14, 32, _steerPad.height - 28), new Color(1f, 0.55f, 0.3f, 0.95f));
+            GUI.Label(new Rect(_steerPad.x, _steerPad.yMax - 18, _steerPad.width, 16), HasJib ? "◀ port      HELM      starboard ▶" : "◀ port      STEER      starboard ▶", _small);
+
+            // Sheet bars: mainsheet, and the jib sheet beside it on a boat with a headsail.
+            SheetBar(_sheetBar, Sheet, HasJib ? "MAIN" : "IN", panel);
+            if (HasJib) SheetBar(_jibBar, JibSheet, "JIB", panel);
+        }
+
+        private void SheetBar(Rect bar, float value, string title, Color panel)
+        {
+            Box(bar, panel);
+            float fill = (bar.height - 40) * value;
+            Box(new Rect(bar.center.x - 3, bar.y + 20, 6, bar.height - 40), new Color(1, 1, 1, 0.25f));
+            Box(new Rect(bar.x + 8, bar.y + 20 + fill - 12, bar.width - 16, 24), new Color(0.9f, 0.95f, 1f, 0.95f));
+            GUI.Label(new Rect(bar.x, bar.y + 2, bar.width, 16), title, _small);
+            GUI.Label(new Rect(bar.x, bar.yMax - 18, bar.width, 16), $"out {value * 100:F0}%", _small);
+        }
+
+        private void Instrument(int i, float cw, string value, string caption)
+        {
+            GUI.Label(new Rect(_topBar.x + i * cw, _topBar.y + 6, cw, 34), value, _big);
+            GUI.Label(new Rect(_topBar.x + i * cw, _topBar.y + 38, cw, 16), caption, _small);
+        }
+
+        /// <summary>Next mark, distance, and the time so far, under the instruments on the left.</summary>
+        private void CoursePanel(BoatState s)
+        {
+            if (Runner == null) return;
+            var r = new Rect(8, _topBar.yMax + 8, _w / 2 - 50, 68);
+            Box(r, new Color(0.05f, 0.12f, 0.2f, 0.55f));
+            double now = Sim.State.Time;
+            var ts = TimeSpan.FromSeconds(Runner.Elapsed(now));
+            string time = $"{(int)ts.TotalMinutes}:{ts.Seconds:00}";
+            if (Runner.Finished)
+            {
+                GUI.Label(new Rect(r.x + 8, r.y + 4, r.width - 16, 20), "Finished!", _label);
+                GUI.Label(new Rect(r.x + 8, r.y + 24, r.width - 16, 30), time, _hint);
+                if (!string.IsNullOrEmpty(BestTime)) GUI.Label(new Rect(r.x + 8, r.y + 50, r.width - 16, 16), "best " + BestTime, _label);
+                return;
+            }
+            var next = Runner.Next;
+            GUI.Label(new Rect(r.x + 8, r.y + 4, r.width - 16, 16), $"{Runner.NextIndex + 1}/{Runner.Course.Marks.Count} {next.Name}", _label);
+            GUI.Label(new Rect(r.x + 8, r.y + 22, r.width - 16, 22), $"{Runner.DistanceToNext(s.Position):F0} m  ·  {Runner.BearingToNext(s.Position) * Mathf.Rad2Deg:000}°", _hint);
+            GUI.Label(new Rect(r.x + 8, r.y + 46, r.width - 16, 16), time + (string.IsNullOrEmpty(BestTime) ? "" : "   best " + BestTime), _label);
+        }
+
+        /// <summary>Little boat seen from above with the apparent (solid) and true (faint) wind arrows, and the next mark (orange).</summary>
+        private void WindArrow(Rect r, float awaDeg, float twaDeg, float? markDeg = null)
+        {
+            Box(r, new Color(0.05f, 0.12f, 0.2f, 0.4f));
+            var c = r.center;
+            Box(new Rect(c.x - 4, c.y - 14, 8, 28), new Color(1f, 0.55f, 0.3f, 0.9f));
+            Pointer(c, twaDeg, r.width * 0.45f, new Color(1, 1, 1, 0.35f));
+            Pointer(c, awaDeg, r.width * 0.45f, new Color(0.6f, 0.9f, 1f, 1f));
+            if (markDeg.HasValue)
+            {
+                float a = markDeg.Value * Mathf.Deg2Rad;
+                var p = c + new Vector2(Mathf.Sin(a), -Mathf.Cos(a)) * r.width * 0.47f;
+                Box(new Rect(p.x - 5, p.y - 5, 10, 10), new Color(1f, 0.5f, 0.1f));
+            }
+        }
+
+        private void Pointer(Vector2 c, float angleDeg, float radius, Color col)
+        {
+            // A wind angle of 0 = from dead ahead; draw dots from the rim toward the boat.
+            float a = angleDeg * Mathf.Deg2Rad;
+            var dir = new Vector2(Mathf.Sin(a), -Mathf.Cos(a));
+            for (int k = 0; k < 5; k++)
+            {
+                var p = c + dir * (radius - k * radius * 0.13f);
+                float sz = 3 + k * 0.8f;
+                Box(new Rect(p.x - sz / 2, p.y - sz / 2, sz, sz), col);
+            }
+        }
+    }
+}

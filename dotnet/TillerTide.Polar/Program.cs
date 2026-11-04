@@ -5,26 +5,30 @@ using TillerTide.Physics;
 // Prints a polar table: settled boat speed (knots) for each true wind speed and angle.
 // Usage: dotnet run --project dotnet/TillerTide.Polar [--detail]
 CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
+var argList = new System.Collections.Generic.List<string>(args);
+bool cruiser = argList.Remove("--cruiser");
+args = argList.ToArray();
+BoatConfig MakeBoat() => cruiser ? BoatConfig.Cruiser40() : new BoatConfig();
 bool detail = args.Length > 0 && args[0] == "--detail";
 if (args.Length == 3 && args[0] == "--trace")
 {
     double w = double.Parse(args[1]), a = double.Parse(args[2]);
-    var sim = new BoatSimulator(new BoatConfig(), new SteadyWind(0, Units.FromKnots(w)));
-    sim.State.Heading = a * Angles.Deg; sim.State.Surge = 1; sim.Controls = BoatControls.Default; sim.Controls.Sheet = a / 180;
+    var sim = new BoatSimulator(MakeBoat(), new SteadyWind(0, Units.FromKnots(w)));
+    sim.State.Heading = a * Angles.Deg; sim.State.Surge = 1; sim.Controls = BoatControls.Default; sim.Controls.Sheet = a / 180; sim.Controls.JibSheet = a / 180;
     var p = new Autopilot(a * Angles.Deg);
     for (int i = 0; i < 120 * 20; i++)
     {
         p.Apply(sim, BoatSimulator.FixedDt); sim.Step(BoatSimulator.FixedDt);
         if (i % 30 == 0) { var s = sim.State; var t = sim.Telemetry;
-            Console.WriteLine($"t {s.Time:0.0} hdg {s.Heading/Angles.Deg:0} u {s.Surge:0.00} v {s.Sway:0.00} heel {s.Heel/Angles.Deg:0.0} awa {t.ApparentWindAngle/Angles.Deg:0} boom {t.BoomAngle/Angles.Deg*t.BoomSide:0} aoa {t.SailAngleOfAttack/Angles.Deg:0} side {t.SideForce:0} drive {t.DriveForce:0} K {t.HeelingMoment:0} hike {s.Hike:0.00} steer {sim.Controls.Steer:0.00} sheet {sim.Controls.Sheet:0.00}"); }
+            Console.WriteLine($"t {s.Time:0.0} hdg {s.Heading/Angles.Deg:0} u {s.Surge:0.00} v {s.Sway:0.00} heel {s.Heel/Angles.Deg:0.0} awa {t.ApparentWindAngle/Angles.Deg:0} boom {t.BoomAngle/Angles.Deg*t.BoomSide:0} aoa {t.SailAngleOfAttack/Angles.Deg:0} side {t.SideForce:0} drive {t.DriveForce:0} K {t.HeelingMoment:0} hike {s.Hike:0.00} steer {sim.Controls.Steer:0.00} sheet {sim.Controls.Sheet:0.00} jib {t.JibAngle/Angles.Deg:0} jaoa {t.JibAngleOfAttack/Angles.Deg:0} jsheet {sim.Controls.JibSheet:0.00}"); }
     }
     return;
 }
-var config = new BoatConfig();
+var config = MakeBoat();
 double[] tws = { 6, 10, 14, 18, 22 };
 double[] twa = { 30, 40, 45, 52, 60, 75, 90, 110, 135, 150, 165, 180 };
 
-Console.WriteLine($"{config.Name}: boat speed in knots (sail area {config.SailArea:0.0} m², {config.Displacement:0} kg)");
+Console.WriteLine($"{config.Name}: boat speed in knots (sail area {config.SailArea + config.JibArea:0.0} m², {config.Displacement:0} kg)");
 Console.Write("TWA \\ TWS");
 foreach (var w in tws) Console.Write($"{w,8:0} kn");
 Console.WriteLine();

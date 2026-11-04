@@ -27,6 +27,7 @@ namespace TillerTide.Physics
         public static Vec2 operator /(Vec2 a, double s) => new Vec2(a.X / s, a.Y / s);
 
         public static double Dot(Vec2 a, Vec2 b) => a.X * b.X + a.Y * b.Y;
+        public static double Distance(Vec2 a, Vec2 b) => (a - b).Length;
 
         /// <summary>Unit vector pointing along a compass bearing (0 = north, clockwise, radians).</summary>
         public static Vec2 FromBearing(double bearing) => new Vec2(Math.Sin(bearing), Math.Cos(bearing));
