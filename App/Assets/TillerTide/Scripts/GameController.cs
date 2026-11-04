@@ -23,7 +23,7 @@ namespace TillerTide.App
         private readonly WaveField _waves = new WaveField();
         private BoatSimulator _sim;
         private GustyWind _windField;
-        private BoatVisual _boat;
+        private CruiserVisual _boat;
         private ChaseCamera _cam;
         private Hud _hud;
         private Transform _sky;
@@ -147,13 +147,13 @@ namespace TillerTide.App
             };
             _waves.SetFromWind(_wind.FromDeg, _wind.SpeedMs);
 
-            var cfg = new BoatConfig();
+            var cfg = BoatConfig.Cruiser40();
             IWindField wind = _region.HasCoast ? new LandShadowWind(_windField, grid) : (IWindField)_windField;
             _sim = new BoatSimulator(cfg, wind, CurrentFor(0), grid);
-            _start = grid.NearestWater(proj.ToLocal(Region.StartLat, Region.StartLon));
+            _start = grid.NearestWater(proj.ToLocal(Region.StartLat, Region.StartLon), 6);
             PlaceAtStart();
 
-            _boat = new GameObject("Boat").AddComponent<BoatVisual>();
+            _boat = new GameObject("Boat").AddComponent<CruiserVisual>();
             _boat.Build(cfg);
             _boat.Apply(_sim, _waves, Time.time, 0f);
             _cam.Target = _boat.transform;
@@ -165,6 +165,13 @@ namespace TillerTide.App
             _hud.MapStatus = () => _region.Status;
             _hud.CurrentLabel = () => _currentMode == 0 ? "No current" : _currentMode == 1 ? "Current 1 kn north" : "Current 1 kn south";
             _hud.OnReset = () => { if (_sim.State.Capsized) _sim.Recover(); else PlaceAtStart(); };
+            _hud.HasJib = cfg.HasJib;
+            if (cfg.MaxReefs > 0)
+                _hud.OnReef = () =>
+                {
+                    _hud.Reef = (_hud.Reef + 1) % (cfg.MaxReefs + 1);
+                    _hud.Flash(_hud.Reef == 0 ? "Full main" : $"Reef {_hud.Reef} in the main");
+                };
             _hud.OnCycleCurrent = () => { _currentMode = (_currentMode + 1) % 3; _sim.Current = CurrentFor(_currentMode); };
             _hud.OnCameraBehind = () => _cam.SnapBehind();
             _hud.OnCycleCourse = CycleCourse;
@@ -179,14 +186,14 @@ namespace TillerTide.App
             var here = _sim.State.Position;
             var grid = _region.Grid;
             if (_courseMode == 1)
-                course = PracticeCourse.WindwardLeeward(here, _wind.FromDeg * Angles.Deg, legLength: 600, laps: 2,
+                course = PracticeCourse.WindwardLeeward(here, _wind.FromDeg * Angles.Deg, legLength: 1200, laps: 2,
                     buoys: _region.Seamarks, toWater: p => grid.NearestWater(p, 3));
             else if (_courseMode == 2)
             {
                 course = PracticeCourse.BuoyTour(here, _region.Seamarks, count: 4, depth: grid);
                 if (course.Marks.Count < 2) { _hud.Flash("No buoys nearby: sail closer to the harbour"); course = null; _courseMode = 0; }
             }
-            _runner = course != null ? new CourseRunner(course, _sim.State.Time) : null;
+            _runner = course != null ? new CourseRunner(course, _sim.State.Time) { ZoneRadius = 35 } : null;
             _hud.Runner = _runner;
             _hud.BestTime = course != null ? Format(PlayerPrefs.GetFloat(BestKey, 0)) : "";
             _buoys.ShowCourse(course);
@@ -209,7 +216,7 @@ namespace TillerTide.App
                 Heading = Angles.Wrap2Pi(_wind.FromDeg * Angles.Deg + 90 * Angles.Deg),
                 Surge = 1.0,
             };
-            if (_hud != null) _hud.Sheet = 0.45f;
+            if (_hud != null) { _hud.Sheet = 0.45f; _hud.JibSheet = 0.45f; }
         }
 
         private void Update()
@@ -221,6 +228,8 @@ namespace TillerTide.App
 
             _sim.Controls.Steer = _hud.Steer;
             _sim.Controls.Sheet = _hud.Sheet;
+            _sim.Controls.JibSheet = _hud.JibSheet;
+            _sim.Controls.Reef = _hud.Reef;
             _sim.Controls.AutoHike = true;
             _sim.Advance(Time.deltaTime);
             _boat.Apply(_sim, _waves, t, Time.deltaTime);
@@ -229,7 +238,7 @@ namespace TillerTide.App
             var tel = _sim.Telemetry;
             _sound.ApparentWind = (float)tel.ApparentWindSpeed;
             _sound.BoatSpeed = (float)tel.SpeedThroughWater;
-            _sound.Luffing = _sim.State.Capsized ? 0 : (float)tel.LuffingFraction;
+            _sound.Luffing = _sim.State.Capsized ? 0 : Mathf.Max((float)tel.LuffingFraction, (float)tel.JibLuffingFraction);
 
             if (_runner != null)
             {
@@ -270,12 +279,13 @@ namespace TillerTide.App
                 _ferryVisuals[i].Apply(_waves, t);
                 if (!_sim.State.Capsized && f.Hits(boat, 1.0))
                 {
-                    // Run down by the ferry: knocked flat and pushed clear of the hull.
+                    // Hit by the ferry: shoved aside and knocked over hard (a keelboat comes back up; a dinghy is capsized).
                     var away = Vec2.FromBearing(f.Heading + System.Math.PI / 2);
                     if (Vec2.Dot(boat - f.Position, away) < 0) away = -away;
                     _sim.State.Position = f.Position + away * (Ferry.Beam / 2 + 6) + (boat - f.Position - away * Vec2.Dot(boat - f.Position, away));
                     _sim.State.Surge = 0; _sim.State.Sway = 0;
-                    _sim.State.Heel = 1.7; _sim.State.Capsized = true;
+                    _sim.State.Heel = 1.2; _sim.State.HeelRate = 0;
+                    if (_sim.Config.CapsizeHeelDeg < 90) { _sim.State.Heel = 1.7; _sim.State.Capsized = true; }
                     _hud.Flash($"Hit by the ferry {f.Name}! Ferries can't stop: keep clear.", 5f);
                 }
                 if (f.IsInPath(boat, 350))

@@ -11,9 +11,10 @@ namespace TillerTide.App
     {
         public Transform Target;
         public Func<Vector2, bool> IsOverHud = _ => false; // screen point, origin bottom-left
-        public float Distance = 15f;
-        public float Pitch = 21f;
+        public float Distance = 34f;
+        public float Pitch = 17f;
         public bool FreeLook;
+        public float FocusHeight = 5f, MinDistance = 8f, MaxDistance = 150f;
 
         private float _yawOffset;
         private float _yaw;
@@ -34,7 +35,7 @@ namespace TillerTide.App
             _yaw = Mathf.LerpAngle(_yaw, targetYaw, 1 - Mathf.Exp(-1.6f * Time.deltaTime));
 
             var rot = Quaternion.Euler(Pitch, _yaw + _yawOffset, 0);
-            var focus = Target.position + Vector3.up * 2.2f;
+            var focus = Target.position + Vector3.up * FocusHeight;
             var pos = focus - rot * Vector3.forward * Distance;
             pos.y = Mathf.Max(pos.y, 0.8f);
             transform.SetPositionAndRotation(pos, Quaternion.LookRotation(focus - pos));
@@ -48,7 +49,7 @@ namespace TillerTide.App
 
         private void HandleInput()
         {
-            Distance = Mathf.Clamp(Distance * (1 - Input.mouseScrollDelta.y * 0.1f), 4f, 60f);
+            Distance = Mathf.Clamp(Distance * (1 - Input.mouseScrollDelta.y * 0.1f), MinDistance, MaxDistance);
 
             if (Input.touchCount >= 2)
             {
@@ -57,7 +58,7 @@ namespace TillerTide.App
                 if (IsOverHud(a.position) || IsOverHud(b.position)) return;
                 float d = Vector2.Distance(a.position, b.position);
                 if (b.phase == TouchPhase.Began || a.phase == TouchPhase.Began) _lastPinch = d;
-                else if (_lastPinch > 1f) Distance = Mathf.Clamp(Distance * _lastPinch / d, 4f, 60f);
+                else if (_lastPinch > 1f) Distance = Mathf.Clamp(Distance * _lastPinch / d, MinDistance, MaxDistance);
                 _lastPinch = d;
                 return;
             }

@@ -10,8 +10,12 @@ namespace TillerTide.Physics
         /// <summary>Crew position: negative = to leeward, 0 = centreline, 1 = fully hiked to windward. Ignored when AutoHike is on.</summary>
         public double Hike;
         public bool AutoHike;
+        /// <summary>Headsail sheet: 0 = in hard .. 1 = fully eased.</summary>
+        public double JibSheet;
+        /// <summary>Number of reefs in the mainsail (0 = full sail).</summary>
+        public int Reef;
 
-        public static BoatControls Default => new BoatControls { Steer = 0, Sheet = 0.2, Hike = 0, AutoHike = true };
+        public static BoatControls Default => new BoatControls { Steer = 0, Sheet = 0.2, Hike = 0, AutoHike = true, JibSheet = 0.2 };
     }
 
     public enum SailFlow { Luffing, Attached, Stalled, Running }
@@ -29,6 +33,7 @@ namespace TillerTide.Physics
         public double Hike;       // current crew position, -0.4 (leeward) .. 1 (fully hiked to windward)
         public double CrewOffset; // crew position across the boat, -1 (full port) .. +1 (full starboard)
         public double Boom;       // boom angle, rad, + = out to starboard
+        public double Jib;        // headsail clew angle, rad, + = out to starboard
         public bool Capsized;
         public bool Aground;
         public double Time;       // seconds
@@ -58,5 +63,9 @@ namespace TillerTide.Physics
         public double RudderAngle;        // rad
         public double RudderStalled;      // 0..1
         public double HullResistance;     // N
+        public double JibAngle;           // rad, signed (+ = starboard)
+        public double JibAngleOfAttack;   // rad, mid-height strip
+        public double JibLuffingFraction; // 0..1
+        public SailFlow JibFlow;
     }
 }

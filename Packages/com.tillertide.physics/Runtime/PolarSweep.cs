@@ -32,6 +32,7 @@ namespace TillerTide.Physics
             sim.State.Surge = 1.0;
             sim.Controls = BoatControls.Default;
             sim.Controls.Sheet = Angles.Clamp(twaDeg / 180.0, 0, 1);
+            sim.Controls.JibSheet = sim.Controls.Sheet;
             var pilot = new Autopilot(heading);
 
             double dt = BoatSimulator.FixedDt, sumSpeed = 0, sumHeel = 0, sumLee = 0, sumVmg = 0;

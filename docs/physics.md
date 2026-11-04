@@ -63,3 +63,24 @@ comes once we pick the first boat.
   open water (less aloft). The distance to land upwind is found by sphere-tracing the distance field.
 - **Ferries** shuttle between Helsingør and Helsingborg on a 50-minute cycle (5 min at each berth, 20 min crossing,
   peak ~14 kn), three on the route. Being inside a hull knocks you flat.
+
+## The 40 ft cruiser
+
+`BoatConfig.Cruiser40()` is a generic modern 12.2 m cruising sloop: 8.6 t with crew, 11.2 m waterline, fin keel
+with a bulb (2.0 m draft), spade rudder, 35 m² mainsail (two reefs) and a 37 m² 105% genoa. The headsail is a
+second strip-theory sail on the forestay with its own sheet; it crosses to leeward on its own, can goosewing near
+dead downwind and is blanketed by the main on a broad reach. The ballast keel's righting lever keeps rising to
+~60° heel, so a knockdown comes back up instead of capsizing. Polar (knots, from `dotnet run --project
+dotnet/TillerTide.Polar -- --cruiser`):
+
+| TWA \ TWS | 6 | 10 | 14 | 18 | 22 |
+| --- | --- | --- | --- | --- | --- |
+| 45° | 4.2 | 6.2 | 7.3 | 7.5 | 7.5 |
+| 60° | 4.7 | 6.6 | 7.7 | 8.1 | 8.2 |
+| 90° | 4.8 | 6.8 | 7.9 | 8.8 | 9.7 |
+| 135° | 3.5 | 5.5 | 7.0 | 8.0 | 8.8 |
+| 150° | 2.9 | 4.8 | 6.3 | 7.3 | 8.2 |
+
+Upwind in 14 knots it heels ~19° with ~4° of leeway and a little weather helm. The effective centre of lateral
+resistance (`BoardX`) sits forward of the keel to stand in for the hull's own lift, which the model doesn't
+compute separately.

@@ -38,8 +38,9 @@ dotnet run -c Release --project dotnet/TillerTide.Polar -- --trace 14 90   # ste
    Unity 6 (accept if it says the project has no version yet).
 4. The first open sets everything up by itself (render pipeline, scene, iOS settings). If anything looks pink or
    empty, run the menu **Tiller & Tide > Set up project**. If the console asks you to restart Unity, do so once.
-5. Press **Play** to sail on the Mac. Controls: drag the bottom pad (or A/D, arrows) to steer, drag the right
-   bar (or W/S) to trim the mainsheet, drag elsewhere to look around, scroll to zoom, R to reset.
+5. Press **Play** to sail on the Mac. You sail a 40 ft cruising sloop. Controls: drag the bottom pad (or A/D,
+   arrows) to steer, drag the right-hand bars to trim the mainsheet (W/S) and the jib sheet (Q/E), Reef (F) to
+   reef the main, drag elsewhere to look around, scroll to zoom, R to reset.
    **Course** cycles between free sailing, a windward–leeward course (two laps, using real buoys when one is
    close to where the mark would go) and a tour of the real buoys nearest you. Sail within 20 m of each mark;
    your best time for each is saved. Tap the little map (top right) for the full chart. Watch out for the

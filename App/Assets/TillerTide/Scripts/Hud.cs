@@ -32,6 +32,13 @@ namespace TillerTide.App
 
         public float Steer;           // -1..1
         public float Sheet = 0.35f;   // 0 in .. 1 out
+        public float JibSheet = 0.35f;
+        public bool HasJib;
+        public int Reef;
+        public Action OnReef;
+        private Rect _jibBar;
+        private int _jibFinger = -1;
+        private bool _mouseJib;
 
         private const float LayoutWidth = 390f;
         private float _scale = 1, _w, _h, _top, _bottom;
@@ -51,12 +58,15 @@ namespace TillerTide.App
             _top = (Screen.height - safe.yMax) / _scale + 6;
             _bottom = safe.y / _scale + 8;
             _topBar = new Rect(8, _top, _w - 16, 92);
-            _steerPad = new Rect(12, _h - _bottom - 92, _w - 130, 84);
-            _sheetBar = new Rect(_w - 96, _h - _bottom - 330, 84, 322);
-            _buttons = new Rect(12, _h - _bottom - 140, _w - 130, 40);
+            float bars = HasJib ? 140 : 96;
+            _steerPad = new Rect(12, _h - _bottom - 92, _w - bars - 34, 84);
+            _sheetBar = new Rect(_w - (HasJib ? 66 : 96), _h - _bottom - 330, HasJib ? 58 : 84, 322);
+            _jibBar = HasJib ? new Rect(_w - 132, _h - _bottom - 330, 58, 322) : new Rect(-1000, -1000, 0, 0);
+            _buttons = new Rect(12, _h - _bottom - 140, _w - bars - 34, 40);
             _mini = new Rect(_w - 118, _topBar.yMax + 8, 110, 110);
             _hudRects.Clear();
             _hudRects.Add(_topBar); _hudRects.Add(_steerPad); _hudRects.Add(_sheetBar); _hudRects.Add(_buttons);
+            if (HasJib) _hudRects.Add(_jibBar);
             if (Chart != null) _hudRects.Add(_fullChart ? new Rect(0, 0, _w, _h) : _mini);
         }
 
@@ -85,6 +95,12 @@ namespace TillerTide.App
                 {
                     if (_steerPad.Contains(g)) _steerFinger = t.fingerId;
                     else if (_sheetBar.Contains(g)) _sheetFinger = t.fingerId;
+                    else if (_jibBar.Contains(g)) _jibFinger = t.fingerId;
+                }
+                if (t.fingerId == _jibFinger)
+                {
+                    if (ended) _jibFinger = -1;
+                    else JibSheet = BarValue(_jibBar, g);
                 }
                 if (t.fingerId == _steerFinger)
                 {
@@ -101,8 +117,9 @@ namespace TillerTide.App
             if (!Input.touchSupported)
             {
                 var g = ToGui(Input.mousePosition);
-                if (Input.GetMouseButtonDown(0)) { _mouseSteer = _steerPad.Contains(g); _mouseSheet = _sheetBar.Contains(g); }
-                if (Input.GetMouseButtonUp(0)) _mouseSteer = _mouseSheet = false;
+                if (Input.GetMouseButtonDown(0)) { _mouseSteer = _steerPad.Contains(g); _mouseSheet = _sheetBar.Contains(g); _mouseJib = _jibBar.Contains(g); }
+                if (Input.GetMouseButtonUp(0)) _mouseSteer = _mouseSheet = _mouseJib = false;
+                if (_mouseJib) JibSheet = BarValue(_jibBar, g);
                 if (_mouseSteer) { SteerFrom(g); steering = true; }
                 if (_mouseSheet) SheetFrom(g);
             }
@@ -112,13 +129,17 @@ namespace TillerTide.App
             if (key != 0) { Steer = Mathf.MoveTowards(Steer, key, 2.5f * Time.deltaTime); steering = true; }
             if (Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.UpArrow)) Sheet = Mathf.Clamp01(Sheet - 0.5f * Time.deltaTime);
             if (Input.GetKey(KeyCode.S) || Input.GetKey(KeyCode.DownArrow)) Sheet = Mathf.Clamp01(Sheet + 0.5f * Time.deltaTime);
+            if (Input.GetKey(KeyCode.Q)) JibSheet = Mathf.Clamp01(JibSheet - 0.5f * Time.deltaTime);
+            if (Input.GetKey(KeyCode.E)) JibSheet = Mathf.Clamp01(JibSheet + 0.5f * Time.deltaTime);
+            if (Input.GetKeyDown(KeyCode.F)) OnReef?.Invoke();
             if (Input.GetKeyDown(KeyCode.R)) OnReset?.Invoke();
 
             if (!steering) Steer = Mathf.MoveTowards(Steer, 0, 3f * Time.deltaTime);
         }
 
         private void SteerFrom(Vector2 g) => Steer = Mathf.Clamp((g.x - _steerPad.center.x) / (_steerPad.width * 0.42f), -1, 1);
-        private void SheetFrom(Vector2 g) => Sheet = Mathf.Clamp01((g.y - _sheetBar.y - 20) / (_sheetBar.height - 40));
+        private void SheetFrom(Vector2 g) => Sheet = BarValue(_sheetBar, g);
+        private static float BarValue(Rect bar, Vector2 g) => Mathf.Clamp01((g.y - bar.y - 20) / (bar.height - 40));
 
         private void Styles()
         {
@@ -131,7 +152,7 @@ namespace TillerTide.App
             _small.normal.textColor = new Color(1, 1, 1, 0.75f);
             _label = new GUIStyle(_small) { fontSize = 12, alignment = TextAnchor.MiddleLeft };
             _hint = new GUIStyle(_big) { fontSize = 15 };
-            _button = new GUIStyle(GUI.skin.button) { fontSize = 13 };
+            _button = new GUIStyle(GUI.skin.button) { fontSize = 12, clipping = TextClipping.Clip };
         }
 
         private void Box(Rect r, Color c)
@@ -176,12 +197,22 @@ namespace TillerTide.App
             if (s.Capsized) { hint = "Capsized! Tap Recover"; hc = new Color(1, 0.4f, 0.3f); }
             else if (s.Aground) { hint = "Aground: steer to deeper water"; hc = new Color(1, 0.6f, 0.2f); }
             else if (Mathf.Abs((float)tel.TrueWindAngle) < 38 * Mathf.Deg2Rad && tel.SpeedThroughWater < 0.8) { hint = "In irons: bear away"; hc = new Color(1, 0.8f, 0.3f); }
-            else switch (tel.SailFlow)
+            else if (HasJib && Mathf.Abs((float)s.Heel) > 28 * Mathf.Deg2Rad) { hint = "Overpowered: ease the main or reef"; hc = new Color(1, 0.55f, 0.3f); }
+            else
             {
-                case SailFlow.Luffing: hint = "Sail luffing: sheet in"; hc = new Color(1, 0.85f, 0.3f); break;
-                case SailFlow.Stalled: hint = "Sail stalled: ease out"; hc = new Color(1, 0.6f, 0.3f); break;
-                case SailFlow.Running: hint = "Running: ease right out"; hc = new Color(0.7f, 0.9f, 1f); break;
-                default: hint = "Good trim"; hc = new Color(0.5f, 1f, 0.6f); break;
+                string main = HasJib ? "Main" : "Sail";
+                switch (tel.SailFlow)
+                {
+                    case SailFlow.Luffing: hint = main + " luffing: sheet in"; hc = new Color(1, 0.85f, 0.3f); break;
+                    case SailFlow.Stalled: hint = main + " stalled: ease out"; hc = new Color(1, 0.6f, 0.3f); break;
+                    case SailFlow.Running: hint = "Running: ease right out"; hc = new Color(0.7f, 0.9f, 1f); break;
+                    default: hint = "Good trim"; hc = new Color(0.5f, 1f, 0.6f); break;
+                }
+                if (HasJib && tel.SailFlow != SailFlow.Luffing && tel.SailFlow != SailFlow.Stalled)
+                {
+                    if (tel.JibFlow == SailFlow.Luffing) { hint = "Jib luffing: trim the jib"; hc = new Color(1, 0.85f, 0.3f); }
+                    else if (tel.JibFlow == SailFlow.Stalled) { hint = "Jib stalled: ease the jib"; hc = new Color(1, 0.6f, 0.3f); }
+                }
             }
             var old = _hint.normal.textColor; _hint.normal.textColor = hc;
             GUI.Label(new Rect(0, _topBar.yMax + 124, _w, 24), hint, _hint);
@@ -210,27 +241,34 @@ namespace TillerTide.App
             }
 
             // Buttons.
-            float bw = (_buttons.width - 18) / 4;
-            if (GUI.Button(new Rect(_buttons.x, _buttons.y, bw, _buttons.height), s.Capsized ? "Recover" : "Reset", _button)) OnReset?.Invoke();
-            if (GUI.Button(new Rect(_buttons.x + (bw + 6), _buttons.y, bw, _buttons.height), "Course", _button)) OnCycleCourse?.Invoke();
-            if (GUI.Button(new Rect(_buttons.x + 2 * (bw + 6), _buttons.y, bw, _buttons.height), "Current", _button)) OnCycleCurrent?.Invoke();
-            if (GUI.Button(new Rect(_buttons.x + 3 * (bw + 6), _buttons.y, bw, _buttons.height), "Camera", _button)) OnCameraBehind?.Invoke();
+            var labels = new List<string> { s.Capsized ? "Recover" : "Reset", "Course", "Current" };
+            var actions = new List<Action> { OnReset, OnCycleCourse, OnCycleCurrent };
+            if (OnReef != null) { labels.Add(Reef == 0 ? "Reef" : $"Reef {Reef}"); actions.Add(OnReef); }
+            labels.Add("Camera"); actions.Add(OnCameraBehind);
+            float bw = (_buttons.width - 5 * (labels.Count - 1)) / labels.Count;
+            for (int i = 0; i < labels.Count; i++)
+                if (GUI.Button(new Rect(_buttons.x + i * (bw + 5), _buttons.y, bw, _buttons.height), labels[i], _button)) actions[i]?.Invoke();
 
             // Tiller pad.
             Box(_steerPad, panel);
             Box(new Rect(_steerPad.center.x - 1, _steerPad.y + 8, 2, _steerPad.height - 16), new Color(1, 1, 1, 0.3f));
             float kx = _steerPad.center.x + Steer * _steerPad.width * 0.42f;
             Box(new Rect(kx - 16, _steerPad.y + 14, 32, _steerPad.height - 28), new Color(1f, 0.55f, 0.3f, 0.95f));
-            GUI.Label(new Rect(_steerPad.x, _steerPad.yMax - 18, _steerPad.width, 16), "◀ port      STEER      starboard ▶", _small);
+            GUI.Label(new Rect(_steerPad.x, _steerPad.yMax - 18, _steerPad.width, 16), HasJib ? "◀ port      HELM      starboard ▶" : "◀ port      STEER      starboard ▶", _small);
 
-            // Mainsheet bar.
-            Box(_sheetBar, panel);
-            float fill = (_sheetBar.height - 40) * Sheet;
-            Box(new Rect(_sheetBar.center.x - 3, _sheetBar.y + 20, 6, _sheetBar.height - 40), new Color(1, 1, 1, 0.25f));
-            Box(new Rect(_sheetBar.x + 10, _sheetBar.y + 20 + fill - 12, _sheetBar.width - 20, 24), new Color(0.9f, 0.95f, 1f, 0.95f));
-            GUI.Label(new Rect(_sheetBar.x, _sheetBar.y + 2, _sheetBar.width, 16), "IN", _small);
-            GUI.Label(new Rect(_sheetBar.x, _sheetBar.yMax - 18, _sheetBar.width, 16), "OUT", _small);
-            GUI.Label(new Rect(_sheetBar.x - 70, _sheetBar.y + 20 + fill - 8, 66, 16), $"sheet {Sheet * 100:F0}%", _small);
+            // Sheet bars: mainsheet, and the jib sheet beside it on a boat with a headsail.
+            SheetBar(_sheetBar, Sheet, HasJib ? "MAIN" : "IN", panel);
+            if (HasJib) SheetBar(_jibBar, JibSheet, "JIB", panel);
+        }
+
+        private void SheetBar(Rect bar, float value, string title, Color panel)
+        {
+            Box(bar, panel);
+            float fill = (bar.height - 40) * value;
+            Box(new Rect(bar.center.x - 3, bar.y + 20, 6, bar.height - 40), new Color(1, 1, 1, 0.25f));
+            Box(new Rect(bar.x + 8, bar.y + 20 + fill - 12, bar.width - 16, 24), new Color(0.9f, 0.95f, 1f, 0.95f));
+            GUI.Label(new Rect(bar.x, bar.y + 2, bar.width, 16), title, _small);
+            GUI.Label(new Rect(bar.x, bar.yMax - 18, bar.width, 16), $"out {value * 100:F0}%", _small);
         }
 
         private void Instrument(int i, float cw, string value, string caption)
