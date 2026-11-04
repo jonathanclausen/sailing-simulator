@@ -126,6 +126,7 @@ namespace TillerTide.App
             _white = Texture2D.whiteTexture;
             _big = new GUIStyle(GUI.skin.label) { fontSize = 26, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
             _big.normal.textColor = Color.white;
+            _big.wordWrap = false; _big.clipping = TextClipping.Clip;
             _small = new GUIStyle(_big) { fontSize = 11, fontStyle = FontStyle.Normal };
             _small.normal.textColor = new Color(1, 1, 1, 0.75f);
             _label = new GUIStyle(_small) { fontSize = 12, alignment = TextAnchor.MiddleLeft };
@@ -154,7 +155,7 @@ namespace TillerTide.App
             float cw = _topBar.width / 5;
             Instrument(0, cw, $"{Units.ToKnots(tel.SpeedOverGround):F1}", "SPEED kn");
             Instrument(1, cw, $"{s.Heading * Mathf.Rad2Deg:000}°", "HEADING");
-            Instrument(2, cw, $"{Units.ToKnots(tel.TrueWindSpeed):F0}", $"WIND kn {LiveWind.Compass((float)(tel.TrueWindDirection * Mathf.Rad2Deg))}");
+            Instrument(2, cw, $"{Units.ToKnots(tel.TrueWindSpeed):F0}", $"WIND {LiveWind.Compass((float)(tel.TrueWindDirection * Mathf.Rad2Deg))}");
             Instrument(3, cw, $"{Mathf.Abs((float)(s.Heel * Mathf.Rad2Deg)):F0}°", "HEEL");
             double depth = Sim.Depth != null ? Sim.Depth.DepthAt(s.Position) : 99;
             var oldBig = _big.normal.textColor;
@@ -255,9 +256,9 @@ namespace TillerTide.App
                 return;
             }
             var next = Runner.Next;
-            GUI.Label(new Rect(r.x + 8, r.y + 4, r.width - 16, 16), $"Mark {Runner.NextIndex + 1}/{Runner.Course.Marks.Count}: {next.Name}", _label);
+            GUI.Label(new Rect(r.x + 8, r.y + 4, r.width - 16, 16), $"{Runner.NextIndex + 1}/{Runner.Course.Marks.Count} {next.Name}", _label);
             GUI.Label(new Rect(r.x + 8, r.y + 22, r.width - 16, 22), $"{Runner.DistanceToNext(s.Position):F0} m  ·  {Runner.BearingToNext(s.Position) * Mathf.Rad2Deg:000}°", _hint);
-            GUI.Label(new Rect(r.x + 8, r.y + 46, r.width - 16, 16), "Time " + time + (string.IsNullOrEmpty(BestTime) ? "" : "   best " + BestTime), _label);
+            GUI.Label(new Rect(r.x + 8, r.y + 46, r.width - 16, 16), time + (string.IsNullOrEmpty(BestTime) ? "" : "   best " + BestTime), _label);
         }
 
         /// <summary>Little boat seen from above with the apparent (solid) and true (faint) wind arrows, and the next mark (orange).</summary>

@@ -11,8 +11,8 @@ namespace TillerTide.App
     {
         public Transform Target;
         public Func<Vector2, bool> IsOverHud = _ => false; // screen point, origin bottom-left
-        public float Distance = 11f;
-        public float Pitch = 16f;
+        public float Distance = 15f;
+        public float Pitch = 21f;
         public bool FreeLook;
 
         private float _yawOffset;
@@ -34,7 +34,7 @@ namespace TillerTide.App
             _yaw = Mathf.LerpAngle(_yaw, targetYaw, 1 - Mathf.Exp(-1.6f * Time.deltaTime));
 
             var rot = Quaternion.Euler(Pitch, _yaw + _yawOffset, 0);
-            var focus = Target.position + Vector3.up * 1.6f;
+            var focus = Target.position + Vector3.up * 2.2f;
             var pos = focus - rot * Vector3.forward * Distance;
             pos.y = Mathf.Max(pos.y, 0.8f);
             transform.SetPositionAndRotation(pos, Quaternion.LookRotation(focus - pos));

@@ -59,6 +59,8 @@ Shader "TillerTide/SimpleLit"
                 float ndl = saturate(dot(n, sun.direction));
                 float3 ambient = SampleSH(n);
                 float3 col = i.color.rgb * (ambient + sun.color * ndl * sun.shadowAttenuation);
+                // Thin double-sided things (the sail) let light through, so the shaded side glows rather than going grey.
+                if (_DoubleSided > 0.5) col += i.color.rgb * sun.color * saturate(dot(-n, sun.direction)) * 0.45;
                 return half4(MixFog(col, i.fog), 1);
             }
             ENDHLSL

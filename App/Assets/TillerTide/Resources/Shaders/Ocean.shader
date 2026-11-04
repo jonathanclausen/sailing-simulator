@@ -91,9 +91,16 @@ Shader "TillerTide/Ocean"
                 float2 d = normalize(_TT_Waves[0].xy);
                 float2 e = float2(-d.y, d.x);
                 float dist = distance(_WorldSpaceCameraPos, i.positionWS);
-                float near = 1.0 / (1.0 + dist * 0.01);
-                float2 g = Ripple(p, d, 2.1, 0.03, 1.8, t) + Ripple(p, normalize(d + e * 0.7), 1.3, 0.02, 1.4, t)
-                         + Ripple(p, normalize(d - e * 0.9), 0.7, 0.01, 1.0, t);
+                float near = 1.0 / (1.0 + dist * 0.06);
+                // Six ripples spread by the golden angle with shrinking wavelengths, so they never line up into stripes.
+                float2 g = 0;
+                [unroll] for (int r = 0; r < 6; r++)
+                {
+                    float a = r * 2.39996 - 1.2;
+                    float2 dr = normalize(d * cos(a) + e * sin(a) * 0.8);
+                    float len = 2.6 * pow(0.72, r);
+                    g += Ripple(p, dr, len, 0.012 * len, 1.25, t + r * 3.7);
+                }
                 float3 n = normalize(i.normalWS + float3(-g.x, 0, -g.y) * near);
 
                 float2 uv = (p - _RegionRect.xy) / _RegionRect.zw;
