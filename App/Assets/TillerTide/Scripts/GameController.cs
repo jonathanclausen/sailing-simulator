@@ -1,5 +1,6 @@
 using System.Collections;
 using TillerTide.Physics;
+using TillerTide.Physics.Racing;
 using TillerTide.Physics.Region;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -24,6 +25,9 @@ namespace TillerTide.App
         private ChaseCamera _cam;
         private Hud _hud;
         private Transform _sky;
+        private BuoyField _buoys;
+        private CourseRunner _runner;
+        private int _courseMode; // 0 off, 1 windward-leeward, 2 buoy tour
         private Vec2 _start;
         private int _currentMode; // 0 none, 1 north-going, 2 south-going
         private bool _ready;
@@ -115,6 +119,9 @@ namespace TillerTide.App
                 TerrainBuilder.Kronborg(Look.ToUnity(kp, (float)grid.TerrainHeightAt(kp)),
                     Look.Lit(new Color(0.78f, 0.72f, 0.62f)), Look.Lit(new Color(0.33f, 0.52f, 0.45f)));
 
+            _buoys = new GameObject("Buoys").AddComponent<BuoyField>();
+            _buoys.Build(_region.Seamarks);
+
             _windField = new GustyWind(_wind.FromDeg * Angles.Deg, _wind.SpeedMs, seed: 7)
             {
                 GustStrength = Mathf.Clamp((_wind.GustMs - _wind.SpeedMs) / Mathf.Max(1f, _wind.SpeedMs), 0.1f, 0.45f),
@@ -140,7 +147,30 @@ namespace TillerTide.App
             _hud.OnReset = () => { if (_sim.State.Capsized) _sim.Recover(); else PlaceAtStart(); };
             _hud.OnCycleCurrent = () => { _currentMode = (_currentMode + 1) % 3; _sim.Current = CurrentFor(_currentMode); };
             _hud.OnCameraBehind = () => _cam.SnapBehind();
+            _hud.OnCycleCourse = CycleCourse;
             _cam.IsOverHud = _hud.IsOverHud;
+        }
+
+        private void CycleCourse()
+        {
+            _courseMode = (_courseMode + 1) % 3;
+            PracticeCourse course = null;
+            var here = _sim.State.Position;
+            var grid = _region.Grid;
+            if (_courseMode == 1)
+                course = PracticeCourse.WindwardLeeward(here, _wind.FromDeg * Angles.Deg, legLength: 600, laps: 2,
+                    buoys: _region.Seamarks, toWater: p => grid.NearestWater(p, 3));
+            else if (_courseMode == 2)
+            {
+                course = PracticeCourse.BuoyTour(here, _region.Seamarks, count: 4, depth: grid);
+                if (course.Marks.Count < 2) { _hud.Flash("No buoys nearby: sail closer to the harbour"); course = null; _courseMode = 0; }
+            }
+            _runner = course != null ? new CourseRunner(course, _sim.State.Time) : null;
+            _hud.Runner = _runner;
+            _buoys.ShowCourse(course);
+            _buoys.SetNext(_runner?.Next);
+            if (course != null) _hud.Flash(course.Name + ": go!");
+            else if (_courseMode == 0) _hud.Flash("Free sailing");
         }
 
         /// <summary>Øresund's stream is mostly driven by wind and sea level, setting north or south through the Sound.</summary>
@@ -172,6 +202,19 @@ namespace TillerTide.App
             _sim.Controls.AutoHike = true;
             _sim.Advance(Time.deltaTime);
             _boat.Apply(_sim, _waves, t, Time.deltaTime);
+            _buoys.Animate(_waves, t, _cam.transform.position);
+
+            if (_runner != null)
+            {
+                var ev = _runner.Update(_sim.State.Position, _sim.State.Time);
+                if (ev == CourseEvent.MarkRounded) { _hud.Flash($"Mark {_runner.NextIndex} rounded"); _buoys.SetNext(_runner.Next); }
+                else if (ev == CourseEvent.Finished)
+                {
+                    var ts = System.TimeSpan.FromSeconds(_runner.Elapsed(_sim.State.Time));
+                    _hud.Flash($"Finished in {(int)ts.TotalMinutes}:{ts.Seconds:00}", 6f);
+                    _buoys.SetNext(null);
+                }
+            }
         }
 
         private void OnGUI()

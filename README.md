@@ -12,7 +12,8 @@ mockup is at [Tiller & Tide mockup](https://claude.ai/artifact/67pweJHN3DccwFut8
 | `dotnet/TillerTide.Physics/` | Builds the same sources as a .NET library so they can be tested without Unity |
 | `dotnet/TillerTide.Physics.Tests/` | xUnit tests: in irons, polar shape, planing, leeway, rudder, current, capsize, grounding, determinism |
 | `dotnet/TillerTide.Polar/` | Prints the boat's polar table (speed at each true wind speed and angle) |
-| `Packages/com.tillertide.physics/Runtime/Region/` | Real maps: OpenStreetMap coastline → land/depth grid (Helsingør first) |
+| `Packages/com.tillertide.physics/Runtime/Region/` | Real maps: OpenStreetMap coastline → land/depth grid, OpenSeaMap buoys (Helsingør first) |
+| `Packages/com.tillertide.physics/Runtime/Racing/` | Practice courses round the marks, with timing |
 | `App/` | The Unity iPhone app: ocean, boat, sail, Helsingør coastline and Kronborg, live wind, touch controls |
 | `dotnet/TillerTide.App.CompileCheck/` | Compiles the app's scripts against Unity's reference assemblies so CI catches C# errors |
 | `docs/physics.md` | How the model works and the current polar |
@@ -38,13 +39,15 @@ dotnet run -c Release --project dotnet/TillerTide.Polar -- --trace 14 90   # ste
    empty, run the menu **Tiller & Tide > Set up project**. If the console asks you to restart Unity, do so once.
 5. Press **Play** to sail on the Mac. Controls: drag the bottom pad (or A/D, arrows) to steer, drag the right
    bar (or W/S) to trim the mainsheet, drag elsewhere to look around, scroll to zoom, R to reset.
+   **Course** cycles between free sailing, a windward–leeward course (two laps, using real buoys when one is
+   close to where the mark would go) and a tour of the real buoys nearest you. Sail within 20 m of each mark.
 6. For the iPhone: **File > Build Profiles** (or Build Settings) > **iOS** > **Switch Platform**, then **Build**
    into a folder such as `App/Builds/iOS`. Open the generated `Unity-iPhone.xcodeproj` in Xcode, select the
    **Unity-iPhone** target > **Signing & Capabilities**, tick *Automatically manage signing* and choose your
    Apple ID as the team. Plug in the iPhone, pick it as the run destination and press **Run**. The first time,
    allow the developer on the phone under *Settings > General > VPN & Device Management*.
 
-On first launch the app downloads the Helsingør coastline from OpenStreetMap (about a minute, then saved on the
+On first launch the app downloads the Helsingør coastline and buoys from OpenStreetMap / OpenSeaMap (about a minute, then saved on the
 phone) and the current wind at Helsingør from Open-Meteo. Without a network it falls back to open sea and a
 typical westerly.
 

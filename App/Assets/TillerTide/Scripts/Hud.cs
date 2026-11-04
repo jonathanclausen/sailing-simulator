@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using TillerTide.Physics;
+using TillerTide.Physics.Racing;
 using UnityEngine;
 
 namespace TillerTide.App
@@ -16,7 +17,14 @@ namespace TillerTide.App
         public Func<string> WindStatus = () => "";
         public Func<string> MapStatus = () => "";
         public Func<string> CurrentLabel = () => "";
-        public Action OnReset, OnCycleCurrent, OnCameraBehind;
+        public Action OnReset, OnCycleCurrent, OnCameraBehind, OnCycleCourse;
+        public CourseRunner Runner;
+
+        private string _flash;
+        private float _flashUntil;
+
+        /// <summary>Show a short message in the middle of the screen for a few seconds.</summary>
+        public void Flash(string message, float seconds = 3f) { _flash = message; _flashUntil = Time.time + seconds; }
 
         public float Steer;           // -1..1
         public float Sheet = 0.35f;   // 0 in .. 1 out
@@ -144,7 +152,11 @@ namespace TillerTide.App
             GUI.Label(new Rect(_topBar.x + 8, _topBar.y + 62, _topBar.width - 16, 14), WindStatus(), _label);
             GUI.Label(new Rect(_topBar.x + 8, _topBar.y + 76, _topBar.width - 16, 14), $"{MapStatus()}  ·  {CurrentLabel()}", _label);
 
-            WindArrow(new Rect(_w / 2 - 34, _topBar.yMax + 8, 68, 68), (float)(tel.ApparentWindAngle * Mathf.Rad2Deg), (float)(tel.TrueWindAngle * Mathf.Rad2Deg));
+            float? markRel = null;
+            if (Runner != null && Runner.Next != null)
+                markRel = (float)(Angles.WrapPi(Runner.BearingToNext(s.Position) - s.Heading) * Mathf.Rad2Deg);
+            WindArrow(new Rect(_w / 2 - 34, _topBar.yMax + 8, 68, 68), (float)(tel.ApparentWindAngle * Mathf.Rad2Deg), (float)(tel.TrueWindAngle * Mathf.Rad2Deg), markRel);
+            CoursePanel(s);
 
             // Trim hint.
             string hint; Color hc;
@@ -162,11 +174,18 @@ namespace TillerTide.App
             GUI.Label(new Rect(0, _topBar.yMax + 80, _w, 24), hint, _hint);
             _hint.normal.textColor = old;
 
+            if (_flash != null && Time.time < _flashUntil)
+            {
+                Box(new Rect(_w / 2 - 140, _h * 0.42f, 280, 44), new Color(0.05f, 0.12f, 0.2f, 0.75f));
+                GUI.Label(new Rect(_w / 2 - 140, _h * 0.42f, 280, 44), _flash, _hint);
+            }
+
             // Buttons.
-            float bw = (_buttons.width - 16) / 3;
+            float bw = (_buttons.width - 18) / 4;
             if (GUI.Button(new Rect(_buttons.x, _buttons.y, bw, _buttons.height), s.Capsized ? "Recover" : "Reset", _button)) OnReset?.Invoke();
-            if (GUI.Button(new Rect(_buttons.x + bw + 8, _buttons.y, bw, _buttons.height), "Current", _button)) OnCycleCurrent?.Invoke();
-            if (GUI.Button(new Rect(_buttons.x + 2 * (bw + 8), _buttons.y, bw, _buttons.height), "Camera", _button)) OnCameraBehind?.Invoke();
+            if (GUI.Button(new Rect(_buttons.x + (bw + 6), _buttons.y, bw, _buttons.height), "Course", _button)) OnCycleCourse?.Invoke();
+            if (GUI.Button(new Rect(_buttons.x + 2 * (bw + 6), _buttons.y, bw, _buttons.height), "Current", _button)) OnCycleCurrent?.Invoke();
+            if (GUI.Button(new Rect(_buttons.x + 3 * (bw + 6), _buttons.y, bw, _buttons.height), "Camera", _button)) OnCameraBehind?.Invoke();
 
             // Tiller pad.
             Box(_steerPad, panel);
@@ -191,14 +210,41 @@ namespace TillerTide.App
             GUI.Label(new Rect(_topBar.x + i * cw, _topBar.y + 38, cw, 16), caption, _small);
         }
 
-        /// <summary>Little boat seen from above with the apparent (solid) and true (faint) wind arrows.</summary>
-        private void WindArrow(Rect r, float awaDeg, float twaDeg)
+        /// <summary>Next mark, distance, and the time so far, under the instruments on the left.</summary>
+        private void CoursePanel(BoatState s)
+        {
+            if (Runner == null) return;
+            var r = new Rect(8, _topBar.yMax + 8, _w / 2 - 50, 68);
+            Box(r, new Color(0.05f, 0.12f, 0.2f, 0.55f));
+            double now = Sim.State.Time;
+            var ts = TimeSpan.FromSeconds(Runner.Elapsed(now));
+            string time = $"{(int)ts.TotalMinutes}:{ts.Seconds:00}";
+            if (Runner.Finished)
+            {
+                GUI.Label(new Rect(r.x + 8, r.y + 4, r.width - 16, 20), "Finished!", _label);
+                GUI.Label(new Rect(r.x + 8, r.y + 24, r.width - 16, 30), time, _hint);
+                return;
+            }
+            var next = Runner.Next;
+            GUI.Label(new Rect(r.x + 8, r.y + 4, r.width - 16, 16), $"Mark {Runner.NextIndex + 1}/{Runner.Course.Marks.Count}: {next.Name}", _label);
+            GUI.Label(new Rect(r.x + 8, r.y + 22, r.width - 16, 22), $"{Runner.DistanceToNext(s.Position):F0} m  ·  {Runner.BearingToNext(s.Position) * Mathf.Rad2Deg:000}°", _hint);
+            GUI.Label(new Rect(r.x + 8, r.y + 46, r.width - 16, 16), "Time " + time, _label);
+        }
+
+        /// <summary>Little boat seen from above with the apparent (solid) and true (faint) wind arrows, and the next mark (orange).</summary>
+        private void WindArrow(Rect r, float awaDeg, float twaDeg, float? markDeg = null)
         {
             Box(r, new Color(0.05f, 0.12f, 0.2f, 0.4f));
             var c = r.center;
             Box(new Rect(c.x - 4, c.y - 14, 8, 28), new Color(1f, 0.55f, 0.3f, 0.9f));
             Pointer(c, twaDeg, r.width * 0.45f, new Color(1, 1, 1, 0.35f));
             Pointer(c, awaDeg, r.width * 0.45f, new Color(0.6f, 0.9f, 1f, 1f));
+            if (markDeg.HasValue)
+            {
+                float a = markDeg.Value * Mathf.Deg2Rad;
+                var p = c + new Vector2(Mathf.Sin(a), -Mathf.Cos(a)) * r.width * 0.47f;
+                Box(new Rect(p.x - 5, p.y - 5, 10, 10), new Color(1f, 0.5f, 0.1f));
+            }
         }
 
         private void Pointer(Vector2 c, float angleDeg, float radius, Color col)
