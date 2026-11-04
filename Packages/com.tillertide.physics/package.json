@@ -1,0 +1,8 @@
+{
+  "name": "com.tillertide.physics",
+  "version": "0.1.0",
+  "displayName": "Tiller & Tide Physics",
+  "description": "Engine-independent sailing dinghy physics: apparent wind, sail and foil polars, hull resistance, heel and currents.",
+  "unity": "2022.3",
+  "author": { "name": "Tiller & Tide" }
+}

@@ -1,0 +1,41 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "dotnet", "dotnet", "{175BD04C-49B3-4700-A784-97B402A325BB}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TillerTide.Physics", "dotnet\TillerTide.Physics\TillerTide.Physics.csproj", "{9890B4A1-7E3D-4CD7-A241-3D0ECDB22BE2}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TillerTide.Physics.Tests", "dotnet\TillerTide.Physics.Tests\TillerTide.Physics.Tests.csproj", "{2214A2A2-8C6C-4ED5-90A9-2FAF7F45CEF4}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TillerTide.Polar", "dotnet\TillerTide.Polar\TillerTide.Polar.csproj", "{47059036-E182-4AFA-BA9B-A1E995CF7DB9}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{9890B4A1-7E3D-4CD7-A241-3D0ECDB22BE2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9890B4A1-7E3D-4CD7-A241-3D0ECDB22BE2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9890B4A1-7E3D-4CD7-A241-3D0ECDB22BE2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9890B4A1-7E3D-4CD7-A241-3D0ECDB22BE2}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2214A2A2-8C6C-4ED5-90A9-2FAF7F45CEF4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2214A2A2-8C6C-4ED5-90A9-2FAF7F45CEF4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2214A2A2-8C6C-4ED5-90A9-2FAF7F45CEF4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2214A2A2-8C6C-4ED5-90A9-2FAF7F45CEF4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{47059036-E182-4AFA-BA9B-A1E995CF7DB9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{47059036-E182-4AFA-BA9B-A1E995CF7DB9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{47059036-E182-4AFA-BA9B-A1E995CF7DB9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{47059036-E182-4AFA-BA9B-A1E995CF7DB9}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{9890B4A1-7E3D-4CD7-A241-3D0ECDB22BE2} = {175BD04C-49B3-4700-A784-97B402A325BB}
+		{2214A2A2-8C6C-4ED5-90A9-2FAF7F45CEF4} = {175BD04C-49B3-4700-A784-97B402A325BB}
+		{47059036-E182-4AFA-BA9B-A1E995CF7DB9} = {175BD04C-49B3-4700-A784-97B402A325BB}
+	EndGlobalSection
+EndGlobal
