@@ -9,3 +9,7 @@ obj/
 [Ll]ogs/
 [Uu]ser[Ss]ettings/
 *.csproj.user
+App/*.csproj
+App/*.sln
+App/Build/
+App/Builds/

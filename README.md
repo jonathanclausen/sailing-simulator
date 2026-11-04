@@ -12,6 +12,9 @@ mockup is at [Tiller & Tide mockup](https://claude.ai/artifact/67pweJHN3DccwFut8
 | `dotnet/TillerTide.Physics/` | Builds the same sources as a .NET library so they can be tested without Unity |
 | `dotnet/TillerTide.Physics.Tests/` | xUnit tests: in irons, polar shape, planing, leeway, rudder, current, capsize, grounding, determinism |
 | `dotnet/TillerTide.Polar/` | Prints the boat's polar table (speed at each true wind speed and angle) |
+| `Packages/com.tillertide.physics/Runtime/Region/` | Real maps: OpenStreetMap coastline → land/depth grid (Helsingør first) |
+| `App/` | The Unity iPhone app: ocean, boat, sail, Helsingør coastline and Kronborg, live wind, touch controls |
+| `dotnet/TillerTide.App.CompileCheck/` | Compiles the app's scripts against Unity's reference assemblies so CI catches C# errors |
 | `docs/physics.md` | How the model works and the current polar |
 
 ## Run it
@@ -24,7 +27,28 @@ dotnet run -c Release --project dotnet/TillerTide.Polar
 dotnet run -c Release --project dotnet/TillerTide.Polar -- --trace 14 90   # step-by-step log: wind 14 kn, 90°
 ```
 
+## Run the app on your Mac and iPhone
+
+1. Install [Unity Hub](https://unity.com/download), then from Hub install **Unity 6 LTS (6000.0.x)** with the
+   **iOS Build Support** module. A free Personal licence is fine.
+2. Install **Xcode** from the Mac App Store and open it once to accept the licence.
+3. Clone this repo. In Unity Hub choose **Add > Add project from disk** and pick the `App` folder. Open it with
+   Unity 6 (accept if it says the project has no version yet).
+4. The first open sets everything up by itself (render pipeline, scene, iOS settings). If anything looks pink or
+   empty, run the menu **Tiller & Tide > Set up project**. If the console asks you to restart Unity, do so once.
+5. Press **Play** to sail on the Mac. Controls: drag the bottom pad (or A/D, arrows) to steer, drag the right
+   bar (or W/S) to trim the mainsheet, drag elsewhere to look around, scroll to zoom, R to reset.
+6. For the iPhone: **File > Build Profiles** (or Build Settings) > **iOS** > **Switch Platform**, then **Build**
+   into a folder such as `App/Builds/iOS`. Open the generated `Unity-iPhone.xcodeproj` in Xcode, select the
+   **Unity-iPhone** target > **Signing & Capabilities**, tick *Automatically manage signing* and choose your
+   Apple ID as the team. Plug in the iPhone, pick it as the run destination and press **Run**. The first time,
+   allow the developer on the phone under *Settings > General > VPN & Device Management*.
+
+On first launch the app downloads the Helsingør coastline from OpenStreetMap (about a minute, then saved on the
+phone) and the current wind at Helsingør from Open-Meteo. Without a network it falls back to open sea and a
+typical westerly.
+
 ## Next
 
-Phase 1 adds the Unity app (iPhone, URP) that renders the ocean and boat and drives this package.
-Building for iPhone needs a Mac with Xcode.
+Bathymetry (real depths and shoals), forecast wind fields across the Sound, real Øresund currents, marks and
+racing, sound, and a jib.

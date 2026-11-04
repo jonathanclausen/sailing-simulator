@@ -1,0 +1,9 @@
+{
+  "name": "TillerTide.App",
+  "rootNamespace": "TillerTide.App",
+  "references": ["TillerTide.Physics"],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "autoReferenced": true
+}

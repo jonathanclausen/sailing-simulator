@@ -1,4 +1,4 @@
-name: Physics tests
+name: Physics tests and app compile check
 
 on:
   push:
